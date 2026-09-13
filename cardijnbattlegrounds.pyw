@@ -428,7 +428,8 @@ CHARACTERS = {
         "color": (0, 200, 255),
         "desc": "ouuh its ethan panini",
         "ability": "Panini Barrage",
-        "ability_cd": 8
+        "ability_cd": 8,
+        "ability_desc": "Fires sixteen panini shots in a ring around you."
     },
 
     "Mr Byrne": {
@@ -442,7 +443,8 @@ CHARACTERS = {
         "color": (200, 0, 200),
         "desc": "big boy",
         "ability": "Big Slam",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Slams the ground and damages every enemy around you."
     },
 
     "Pashmeet": {
@@ -456,7 +458,8 @@ CHARACTERS = {
         "color": (255, 128, 0),
         "desc": "PASHMEET YOU SUCK",
         "ability": "PASHMEET RAGE",
-        "ability_cd": 12
+        "ability_cd": 12,
+        "ability_desc": "Enters a rage that boosts damage, speed and fire rate."
     },
 
     "Lucas": {
@@ -470,7 +473,8 @@ CHARACTERS = {
         "color": (255, 50, 50),
         "desc": "hot damn",
         "ability": "Burning Dash",
-        "ability_cd": 8
+        "ability_cd": 8,
+        "ability_desc": "Gain a burst of speed and set fire to nearby enemies."
     },
 
     "Darcy": {
@@ -484,7 +488,8 @@ CHARACTERS = {
         "color": CYAN,
         "desc": "darcy howard",
         "ability": "Ice Shield",
-        "ability_cd": 12
+        "ability_cd": 12,
+        "ability_desc": "Encases yourself in an ice shield that blocks damage."
     },
 
     "Mr Deng": {
@@ -498,7 +503,8 @@ CHARACTERS = {
         "color": PURPLE,
         "desc": "daddy denguh~",
         "ability": "Deng Storm",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Summons a storm of twelve shots around you."
     },
 
     "chudson mcchud": {
@@ -512,7 +518,8 @@ CHARACTERS = {
         "color": DARK_ORANGE,
         "desc": "woah he a chuddy boi",
         "ability": "Chud Explosion",
-        "ability_cd": 9
+        "ability_cd": 9,
+        "ability_desc": "Detonates a huge explosion that damages everything."
     },
 
     "Jethro": {
@@ -526,7 +533,8 @@ CHARACTERS = {
         "color": YELLOW,
         "desc": "tranjethro",
         "ability": "Jethro Beam",
-        "ability_cd": 9
+        "ability_cd": 9,
+        "ability_desc": "Fires a piercing beam at every nearby enemy."
     },
 
     "Lincoln": {
@@ -540,7 +548,8 @@ CHARACTERS = {
         "color": DARK_BLUE,
         "desc": "lincolnstein",
         "ability": "Teleport",
-        "ability_cd": 7
+        "ability_cd": 7,
+        "ability_desc": "Blink away to safety and turn briefly invincible."
     },
 
     "Jack": {
@@ -554,7 +563,8 @@ CHARACTERS = {
         "color": BROWN,
         "desc": "one legged strong dude",
         "ability": "Jack Nuke",
-        "ability_cd": 14
+        "ability_cd": 14,
+        "ability_desc": "Drops a massive nuke that wipes nearby enemies."
     },
 
     "Lenny": {
@@ -568,7 +578,8 @@ CHARACTERS = {
         "color": LIME,
         "desc": "sick as",
         "ability": "Lenny Rush",
-        "ability_cd": 8
+        "ability_cd": 8,
+        "ability_desc": "Rush at high speed and fire a ring of shots."
     },
 
     "straight teeth": {
@@ -582,7 +593,8 @@ CHARACTERS = {
         "color": PINK,
         "desc": "AUGH STOP IT HURTS",
         "ability": "Pain Field",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Summons a pain field that damages enemies inside."
     },
 
     "Toby": {
@@ -596,7 +608,8 @@ CHARACTERS = {
         "color": ORANGE,
         "desc": "big toby",
         "ability": "Toby Charge",
-        "ability_cd": 9
+        "ability_cd": 9,
+        "ability_desc": "Charge forward with momentum and slam nearby enemies."
     },
 
     "Kirat": {
@@ -610,7 +623,8 @@ CHARACTERS = {
         "color": CYAN,
         "desc": "jaskirat singhle",
         "ability": "Kirat Multishot",
-        "ability_cd": 8
+        "ability_cd": 8,
+        "ability_desc": "Fires a massive ring of multishot bullets."
     },
 
     "Mr Ginn": {
@@ -624,7 +638,8 @@ CHARACTERS = {
         "color": PURPLE,
         "desc": "this guy sucks",
         "ability": "Ginn Zone",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Creates a zone that constantly damages enemies."
     },
 
     "Bentley": {
@@ -638,7 +653,8 @@ CHARACTERS = {
         "color": GOLD,
         "desc": "he small n weak but fast kinda maybe",
         "ability": "Tiny Speed",
-        "ability_cd": 7
+        "ability_cd": 7,
+        "ability_desc": "Massively boosts speed and fire rate with shields."
     },
 
     "Beau": {
@@ -652,7 +668,8 @@ CHARACTERS = {
         "color": (100, 150, 255),
         "desc": "im too lazy for this",
         "ability": "Beau Blast",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Fires a 360-degree blast of heavy shots."
     },
 
     "Billy": {
@@ -666,7 +683,8 @@ CHARACTERS = {
         "color": (255, 100, 100),
         "desc": "bily",
         "ability": "Billy Blitz",
-        "ability_cd": 7
+        "ability_cd": 7,
+        "ability_desc": "Blitz yourself with speed and a ring of shots."
     },
 
     "Will": {
@@ -680,7 +698,8 @@ CHARACTERS = {
         "color": (100, 255, 180),
         "desc": "wilhod studios can you sponsor me",
         "ability": "Will Heal",
-        "ability_cd": 12
+        "ability_cd": 12,
+        "ability_desc": "Restore half your health and gain brief shields."
     },
 
     "Wyatt": {
@@ -694,7 +713,8 @@ CHARACTERS = {
         "color": (180, 100, 255),
         "desc": "ok",
         "ability": "Wyatt Storm",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Conjures a storm of shots all around you."
     },
 
     # ========================================================
@@ -712,7 +732,8 @@ CHARACTERS = {
         "color": (255, 180, 50),
         "desc": "Arronchini ball",
         "ability": "Arron Barrage",
-        "ability_cd": 8
+        "ability_cd": 8,
+        "ability_desc": "Fires three rings of heavy Arronchini shots."
     },
 
     "Jett": {
@@ -726,7 +747,8 @@ CHARACTERS = {
         "color": (80, 255, 255),
         "desc": "jet engine                                                                                                                                                ",
         "ability": "JETT OVERDRIVE",
-        "ability_cd": 15
+        "ability_cd": 15,
+        "ability_desc": "Blasts a burst while hugely boosting speed and fire rate."
     },
 
     "Lachie": {
@@ -740,7 +762,8 @@ CHARACTERS = {
         "color": (80, 255, 140),
         "desc": "Lachie goes turbo",
         "ability": "Lachie Turbo",
-        "ability_cd": 10
+        "ability_cd": 10,
+        "ability_desc": "Go turbo: fast movement, fast firing and a quick ring."
     },
 
     "Jakub": {
@@ -754,7 +777,8 @@ CHARACTERS = {
         "color": (255, 220, 60),
         "desc": "Jakub calls in the chaos",
         "ability": "Jakub Meteor",
-        "ability_cd": 11
+        "ability_cd": 11,
+        "ability_desc": "Calls a huge meteor that smashes every enemy."
     },
 
     "Ben": {
@@ -768,7 +792,8 @@ CHARACTERS = {
         "color": (255, 100, 210),
         "desc": "Ben disappears and strikes back",
         "ability": "Ben Phantom",
-        "ability_cd": 9
+        "ability_cd": 9,
+        "ability_desc": "Vanish, become invincible, then strike from everywhere."
     },
 
     "Brianna": {
@@ -782,7 +807,23 @@ CHARACTERS = {
         "color": (255, 110, 190),
         "desc": "Brianna brings the pressure",
         "ability": "Brianna Barrage",
-        "ability_cd": 9
+        "ability_cd": 9,
+        "ability_desc": "Fires a barrage around you while gaining speed."
+    },
+
+    "Kody": {
+        "hp": 140,
+        "speed": 5.2,
+        "t_speed": 14,
+        "rate": 13,
+        "range": 70,
+        "damage": 8,
+        "bullet_size": 8,
+        "color": (255, 150, 100),
+        "desc": "kody my goat",
+        "ability": "Kody Cyclone",
+        "ability_cd": 9,
+        "ability_desc": "Whips up a cyclone of shots and briefly shields you."
     },
 
     "Monika": {
@@ -796,7 +837,8 @@ CHARACTERS = {
         "color": (255, 50, 150),
         "desc": "MONIKA IS ABSOLUTELY BROKEN",
         "ability": "MONIKA DELETES EVERYTHING",
-        "ability_cd": 5
+        "ability_cd": 5,
+        "ability_desc": "Deletes every enemy on screen and turns you invincible."
     },
 
     "Soggy Cat": {
@@ -810,7 +852,8 @@ CHARACTERS = {
         "color": (120, 190, 255),
         "desc": "soggy but surprisingly dangerous",
         "ability": "Soggy Spray",
-        "ability_cd": 8
+        "ability_cd": 8,
+        "ability_desc": "Sprays a soggy barrage of shots everywhere."
     },
 
     # Hidden characters.
@@ -818,7 +861,8 @@ CHARACTERS = {
         "hp": 180, "speed": 3.9, "t_speed": 14, "rate": 12,
         "range": 90, "damage": 10, "bullet_size": 10,
         "color": (255, 205, 80), "desc": "the secret shopkeeper has entered the arena",
-        "ability": "Kempson Deal", "ability_cd": 10
+        "ability": "Kempson Deal", "ability_cd": 10,
+        "ability_desc": "The shopkeeper deals heavy damage to everyone nearby."
     },}
 
 
@@ -883,6 +927,7 @@ CHARACTER_PASSIVES = {
     "Monika": ("DELETE", "Shots pierce enemies and never stop on hit."),
     "Soggy Cat": ("AUTO AIM", "Automatically fires piercing shots at enemies."),
     "Kempson": ("DEALER", "Every kill has a chance to refund your ability cooldown."),
+    "Kody": ("CYCLONE", "Moving while firing boosts your fire rate."),
 }
 
 # ============================================================
@@ -2235,6 +2280,27 @@ def use_ability(
                 )
             )
 
+    # ========================================================
+    # KODY - CYCLONE
+    # ========================================================
+
+    elif player.name == "Kody":
+        # Kody whips up a cyclone of shots and briefly shields up.
+        player.invuln = FPS * 2
+        player.speed_boost_timer = FPS * 4
+
+        for i in range(24):
+            angle = i * math.pi * 2 / 24
+            tears.append(
+                TearEntity(
+                    cx, cy,
+                    math.cos(angle) * 15,
+                    math.sin(angle) * 15,
+                    110, 7,
+                    player.damage * 2
+                )
+            )
+
     # Custom fighters get a balanced radial burst instead of having no ability.
     elif player.name.startswith("Custom Fighter"):
         for i in range(12):
@@ -2326,8 +2392,9 @@ def credits_menu():
         text_center("Created by Jamie Chambers", font_ui, WHITE, 270)
         text_center("Fur:Trash for the amazing music.", font_small, LIGHT_GRAY, 323)
         text_center("The fizcord discord server for promoting and ideas.", font_small, LIGHT_GRAY, 350)
-        text_center("And my friends for making this possible! <3", font_small, LIGHT_GRAY, 378)
-        text_center("Thanks for playing!", font_ui, ACCENT, 425)
+        text_center("@troll_the_world on discord for making the wiki", font_small, LIGHT_GRAY, 374)
+        text_center("And my friends for making this possible! <3", font_small, LIGHT_GRAY, 398)
+        text_center("Thanks for playing!", font_ui, ACCENT, 440)
         text_center("ESC: back", font_tiny, MUTED, 515)
 
         for event in pygame.event.get():
@@ -2753,6 +2820,7 @@ def create_character_menu():
                         "color": CUSTOM_COLORS[color_index],
                         "desc": "A fighter you built yourself.",
                         "ability": "Custom Burst",
+                        "ability_desc": "A balanced burst of shots all around you.",
                         "ability_cd": 8
                     }
                     return
@@ -2786,6 +2854,7 @@ def create_character_menu():
                         "color": CUSTOM_COLORS[color_index],
                         "desc": "A fighter you built yourself.",
                         "ability": "Custom Burst",
+                        "ability_desc": "A balanced burst of shots all around you.",
                         "ability_cd": 8
                     }
                     return
@@ -2906,7 +2975,7 @@ def run_character_menu():
         visible = names[start_i:end_i]
 
         # Character list
-        list_rect = pygame.Rect(20, 115, 300, 430)
+        list_rect = pygame.Rect(20, 115, 300, 450)
         panel(list_rect)
 
         y = 130
@@ -2933,7 +3002,7 @@ def run_character_menu():
             y += 44
 
         # Detail panel
-        detail = pygame.Rect(340, 115, 440, 430)
+        detail = pygame.Rect(340, 115, 440, 450)
         panel(detail, PANEL, BORDER, 16, 1)
 
         colour = MUTED if locked else data["color"]
@@ -2971,7 +3040,7 @@ def run_character_menu():
             else:
                 text_center("LOCKED", font_ui, MUTED, 372, 560)
         else:
-            sy = 300
+            sy = 296
             for label, value, maximum, stat_colour in stats:
                 label_s = font_tiny.render(label, True, MUTED)
                 value_s = font_tiny.render(str(value), True, WHITE)
@@ -2983,16 +3052,26 @@ def run_character_menu():
             # Keep the ability and passive sections inside the detail panel.
             # The passive description is wrapped so longer descriptions never
             # run through the panel edge or get clipped.
-            badge("ABILITY", 365, 457, colour)
+            badge("ABILITY", 365, 460, colour)
             ability = font_small.render(data["ability"], True, WHITE)
-            screen.blit(ability, (445, 461))
+            screen.blit(ability, (445, 464))
+
+            # Show what the ability does on the line below its name.
+            ability_desc = data.get("ability_desc", "No description.")
+            max_abil_width = detail.right - 365 - 18
+            if font_tiny.size(ability_desc)[0] > max_abil_width:
+                while ability_desc and font_tiny.size(ability_desc + "...")[0] > max_abil_width:
+                    ability_desc = ability_desc[:-1]
+                ability_desc += "..."
+            abil_s = font_tiny.render(ability_desc, True, MUTED)
+            screen.blit(abil_s, (365, 488))
 
             passive_name, passive_desc = CHARACTER_PASSIVES.get(
                 selected, ("STANDARD", "A dependable fighter.")
             )
-            badge("PASSIVE", 365, 491, colour)
+            badge("PASSIVE", 365, 509, colour)
             passive = font_tiny.render(passive_name, True, WHITE)
-            screen.blit(passive, (445, 495))
+            screen.blit(passive, (445, 513))
 
             # Wrap the description to the available panel width.
             max_passive_width = detail.right - 365 - 18
@@ -3011,7 +3090,7 @@ def run_character_menu():
                 lines.append(line)
             for line_index, line_text in enumerate(lines[:2]):
                 desc_s = font_tiny.render(line_text, True, MUTED)
-                screen.blit(desc_s, (365, 518 + line_index * 15))
+                screen.blit(desc_s, (365, 534 + line_index * 15))
 
         controls = ("↑ ↓ SELECT     ENTER PUZZLE / PLAY     ESC BACK"
                     if selected == "Monika" and locked else
