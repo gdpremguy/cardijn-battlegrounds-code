@@ -339,6 +339,8 @@ def draw_text_shadow(text, font, colour, x, y, offset=(2, 2), alpha=140):
 def button(rect, label, active=False, accent=None, subtitle=None):
     """Consistent modern button with hover/selection treatment."""
     accent = accent or ACCENT
+    if active:
+        draw_rect_glow(rect, accent, radius=10, alpha=50, spread=10)
     draw_ui_shadow(rect, radius=10, offset=(0, 4), alpha=65, spread=5)
     if active:
         pygame.draw.rect(screen, accent, rect, border_radius=10)
@@ -402,6 +404,147 @@ def badge(text, x, y, colour=ACCENT):
     pygame.draw.rect(screen, (*colour,), rect, border_radius=8)
     screen.blit(surf, (rect.x + 9, rect.y + 4))
     return rect
+
+
+# ============================================================
+# ANIMATION HELPERS
+# ============================================================
+
+def lerp(a, b, t):
+    """Smoothly interpolate between two values."""
+    return a + (b - a) * t
+
+
+def pulse_val(base=0.5, amplitude=0.35, period=0.5, offset=0):
+    """Return an oscillating 0..1 value driven by the global clock."""
+    t = pygame.time.get_ticks() / 1000.0
+    return base + amplitude * math.sin(t * 2 * math.pi / period + offset)
+
+
+def ease_out(t):
+    """Smooth deceleration — useful for entrance motion."""
+    t = max(0.0, min(1.0, t))
+    return 1 - (1 - t) ** 3
+
+
+def draw_rect_glow(rect, colour, radius=10, alpha=40, spread=12):
+    """Draw a soft layered glow behind a rounded rectangle."""
+    glow = pygame.Surface((rect.w + spread * 2, rect.h + spread * 2), pygame.SRCALPHA)
+    for i in range(4):
+        inner = pygame.Rect(spread, spread, rect.w, rect.h)
+        inflate = int(spread * (1 - i / 4))
+        inner.inflate_ip(-inflate * 2, -inflate * 2)
+        pygame.draw.rect(glow, (*colour, alpha // (i + 1)), inner, border_radius=max(6, radius - i))
+    screen.blit(glow, (rect.x - spread, rect.y - spread))
+
+
+def draw_alpha_rect(rect, colour, radius=10, alpha=55):
+    """Draw a rounded rectangle that fades into whatever is behind it."""
+    surf = pygame.Surface((rect.w, rect.h), pygame.SRCALPHA)
+    pygame.draw.rect(surf, (*colour, alpha), (0, 0, rect.w, rect.h), border_radius=radius)
+    screen.blit(surf, rect.topleft)
+
+
+def draw_fade_enter(age_frames, target_rect, drift=18):
+    """Return a copy of *target_rect* eased upward while a menu fades in."""
+    t = ease_out(age_frames / 16.0)
+    moved = target_rect.copy()
+    moved.y += int(drift * (1 - t))
+    return moved
+
+
+# ============================================================
+# SCREEN TRANSITIONS
+# ============================================================
+
+FADE_STEP = 30           # overlay alpha change per frame
+FADE_HOLD_FRAMES = 4     # frames held fully black before switching screens
+fade_alpha = 0           # current overlay alpha 0..255
+fade_mode = "idle"       # "idle" | "in" | "out"
+fade_hold = 0            # frames held at full black
+exit_ok = False          # True once a returning menu's fade-out has finished
+_pending_action = None   # function to run after the fade-out completes
+
+
+def tick_fade():
+    """Advance the shared screen-fade animation once per frame."""
+    global fade_alpha, fade_mode, fade_hold, exit_ok, _pending_action
+    if fade_mode == "in":
+        fade_alpha = max(0, fade_alpha - FADE_STEP)
+        if fade_alpha <= 0:
+            fade_mode = "idle"
+            fade_hold = 0
+    elif fade_mode == "out":
+        fade_alpha = min(255, fade_alpha + FADE_STEP)
+        if fade_alpha >= 255:
+            fade_hold += 1
+            if fade_hold >= FADE_HOLD_FRAMES:
+                fade_hold = 0
+                if _pending_action is not None:
+                    action, _pending_action = _pending_action, None
+                    fade_mode = "in"
+                    fade_alpha = 255
+                    action()
+                else:
+                    # Fade-out finished for a menu that is returning to its caller.
+                    fade_mode = "in"
+                    fade_alpha = 255
+                    exit_ok = True
+
+
+def draw_fade_overlay():
+    """Draw the dark transition overlay at the current alpha."""
+    if fade_alpha > 0:
+        overlay = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
+        overlay.fill((0, 0, 0, int(fade_alpha)))
+        screen.blit(overlay, (0, 0))
+
+
+def fade_out_blocking():
+    """Synchronously fade the current screen to black before switching."""
+    global fade_alpha, fade_mode, fade_hold, exit_ok
+    if fade_mode != "idle":
+        return 1
+    fade_mode = "out"
+    fade_alpha = 0
+    fade_hold = 0
+    exit_ok = False
+    guard = 0
+    while fade_mode == "out" and guard < FPS * 2:
+        tick_fade()
+        draw_fade_overlay()
+        pygame.display.flip()
+        clock.tick(FPS)
+        guard += 1
+    # Hand the new screen a fully black canvas to fade in from.
+    fade_mode = "in"
+    fade_alpha = 255
+    exit_ok = False
+    return 0
+
+
+def run_transition(action):
+    """Fade out the current screen, run *action* on black, then fade its frames in."""
+    if fade_mode == "idle":
+        fade_out_blocking()
+    action()
+
+
+def request_menu_exit():
+    """Begin a fade-out so the active menu can return cleanly after it finishes."""
+    global fade_alpha, fade_mode, fade_hold, exit_ok
+    if fade_mode != "idle":
+        return
+    fade_mode = "out"
+    fade_alpha = 0
+    fade_hold = 0
+    exit_ok = False
+
+
+def reset_exit_ok():
+    """Consume the exit signal raised by tick_fade after a menu fade-out."""
+    global exit_ok
+    exit_ok = False
 
 
 # ============================================================
@@ -2326,20 +2469,24 @@ def use_ability(
 def theme_menu():
     names = list(THEMES.keys())
     selected = names.index(CURRENT_THEME)
+    age = 0
 
     while True:
+        tick_fade()
         draw_gradient_background()
         text_center("THEME SELECT", font_title, WHITE, 70)
         text_center("Choose the look of Cardijn Battlegrounds", font_small, MUTED, 132)
 
-        panel_rect = pygame.Rect(WIDTH // 2 - 210, 175, 420, 330)
+        panel_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 210, 175, 420, 330))
         panel(panel_rect, PANEL, BORDER, 16, 1)
 
         for i, name in enumerate(names):
-            rect = pygame.Rect(WIDTH // 2 - 175, 195 + i * 46, 350, 38)
+            rect = pygame.Rect(WIDTH // 2 - 175, panel_rect.y + 20 + i * 46, 350, 38)
             active = i == selected or rect.collidepoint(pygame.mouse.get_pos())
             colour = BLACK if active else WHITE
             fill = THEMES[name]["ACCENT"] if active else PANEL_2
+            if active:
+                draw_rect_glow(rect, THEMES[name]["ACCENT"], radius=9, alpha=34, spread=9)
             pygame.draw.rect(screen, fill, rect, border_radius=9)
             if not active:
                 pygame.draw.rect(screen, BORDER, rect, 1, border_radius=9)
@@ -2348,11 +2495,21 @@ def theme_menu():
 
         text_center("ENTER / CLICK  •  ESC TO GO BACK", font_tiny, MUTED, 525)
 
+        if exit_ok:
+            reset_exit_ok()
+            return
+
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN:
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and fade_mode == "idle":
+                for i, name in enumerate(names):
+                    rect = pygame.Rect(WIDTH // 2 - 175, panel_rect.y + 20 + i * 46, 350, 38)
+                    if rect.collidepoint(event.pos):
+                        selected = i
+                        apply_theme(name)
+            if fade_mode == "idle" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected = (selected - 1) % len(names)
                 elif event.key == pygame.K_DOWN:
@@ -2360,17 +2517,16 @@ def theme_menu():
                 elif event.key == pygame.K_RETURN:
                     apply_theme(names[selected])
                 elif event.key == pygame.K_ESCAPE:
-                    return
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                for i, name in enumerate(names):
-                    rect = pygame.Rect(WIDTH // 2 - 175, 195 + i * 46, 350, 38)
-                    if rect.collidepoint(event.pos):
-                        selected = i
-                        apply_theme(name)
+                    request_menu_exit()
+            elif fade_mode != "idle" and event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_ESCAPE:
+                    request_menu_exit()
 
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
+        age += 1
 
 
 # ============================================================
@@ -2379,13 +2535,15 @@ def theme_menu():
 
 def credits_menu():
     """Show the people responsible for this totally serious game."""
+    age = 0
     while True:
+        tick_fade()
         draw_gradient_background()
 
         text_center("CREDITS", font_title, WHITE, 70)
         text_center("because im not a bad person", font_small, MUTED, 125)
 
-        credit_rect = pygame.Rect(WIDTH // 2 - 260, 170, 520, 300)
+        credit_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 260, 170, 520, 300))
         panel(credit_rect, PANEL, BORDER, 16, 1)
 
         text_center("CARDIJN BATTLEGROUNDS", font_big, ACCENT, 205)
@@ -2402,11 +2560,18 @@ def credits_menu():
                 pygame.quit()
                 sys.exit()
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-                return
+                if fade_mode == "idle":
+                    request_menu_exit()
 
+        if exit_ok:
+            reset_exit_ok()
+            return
+
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
+        age += 1
 
 
 # ============================================================
@@ -2425,13 +2590,15 @@ def changelog_menu():
     selected = 0
     scroll = 0
     visible_count = 10
+    age = 0
 
     while True:
+        tick_fade()
         draw_gradient_background()
         text_center("CHANGELOG", font_title, WHITE, 28)
         text_center("CARDIJN BATTLEGROUNDS V1.6", font_small, MUTED, 82)
 
-        card = pygame.Rect(55, 115, 690, 410)
+        card = draw_fade_enter(age, pygame.Rect(55, 115, 690, 410))
         panel(card, PANEL, BORDER, 18, 1)
 
         start = max(0, min(scroll, max(0, len(CHANGELOG_ENTRIES) - visible_count)))
@@ -2443,6 +2610,7 @@ def changelog_menu():
             row = pygame.Rect(75, y, 650, 34)
 
             if active:
+                draw_rect_glow(row, ACCENT, radius=8, alpha=30, spread=8)
                 pygame.draw.rect(screen, PANEL_2, row, border_radius=8)
                 pygame.draw.rect(screen, ACCENT, row, 1, border_radius=8)
 
@@ -2481,18 +2649,20 @@ def changelog_menu():
                 sys.exit()
 
             if event.type == pygame.KEYDOWN:
-                if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
-                    return
+                if fade_mode == "idle":
+                    if event.key in (pygame.K_ESCAPE, pygame.K_RETURN):
+                        request_menu_exit()
+                    elif event.key == pygame.K_UP:
+                        selected = max(0, selected - 1)
+                        if selected < scroll:
+                            scroll = selected
+                    elif event.key == pygame.K_DOWN:
+                        selected = min(len(CHANGELOG_ENTRIES) - 1, selected + 1)
+                        if selected >= scroll + visible_count:
+                            scroll = selected - visible_count + 1
 
-                if event.key == pygame.K_UP:
-                    selected = max(0, selected - 1)
-                    if selected < scroll:
-                        scroll = selected
-
-                elif event.key == pygame.K_DOWN:
-                    selected = min(len(CHANGELOG_ENTRIES) - 1, selected + 1)
-                    if selected >= scroll + visible_count:
-                        scroll = selected - visible_count + 1
+                elif event.key == pygame.K_ESCAPE:
+                    request_menu_exit()
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 if card.collidepoint(event.pos):
@@ -2505,9 +2675,14 @@ def changelog_menu():
                         y_check += 37
 
         draw_developer_credit()
+        if exit_ok:
+            reset_exit_ok()
+            return
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
+        age += 1
 
 
 # ============================================================
@@ -2518,12 +2693,16 @@ def main_menu():
     play_music("menu")
     selected = 0
     options = ["PLAY", "CREATE CHARACTER", "THEMES", "CHANGELOG", "CREDITS", "MUSIC VOLUME", "QUIT"]
+    age = 0
+    selected_y = 322.0
 
     while True:
+        tick_fade()
         draw_gradient_background()
 
-        # Brand / title
-        glow_circle((WIDTH // 2, 88), 44, ACCENT, 24)
+        # Brand / title with a gentle breathing glow
+        title_pulse = int(16 + 9 * (0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.004)))
+        glow_circle((WIDTH // 2, 88), 44, ACCENT, title_pulse)
         pygame.draw.circle(screen, PANEL_2, (WIDTH // 2, 88), 40)
         pygame.draw.circle(screen, ACCENT, (WIDTH // 2, 88), 40, 2)
         text_center("CB", font_big, WHITE, 62)
@@ -2560,9 +2739,18 @@ def main_menu():
         )
 
         # Main menu
-        menu_rect = pygame.Rect(WIDTH // 2 - 185, 280, 370, 324)
+        menu_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 185, 280, 370, 324))
         panel(menu_rect, PANEL, BORDER, 18, 1)
         section_label("MAIN MENU", menu_rect.x + 24, menu_rect.y + 15)
+
+        # Smoothly glide the selection highlight between options.
+        target_y = menu_rect.y + 42 + selected * 36
+        selected_y = lerp(selected_y, target_y, 0.38)
+        if abs(selected_y - target_y) < 0.4:
+            selected_y = target_y
+        highlight = pygame.Rect(menu_rect.x + 14, int(selected_y) - 2, menu_rect.w - 28, 34)
+        draw_rect_glow(highlight, ACCENT, radius=10, alpha=30, spread=8)
+        draw_alpha_rect(highlight, ACCENT, radius=10, alpha=40)
 
         for i, option in enumerate(options):
             rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 42 + i * 36, menu_rect.w - 48, 30)
@@ -2583,7 +2771,7 @@ def main_menu():
                 pygame.quit()
                 sys.exit()
 
-            if event.type == pygame.KEYDOWN:
+            if fade_mode == "idle" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected = (selected - 1) % len(options)
                 elif event.key == pygame.K_DOWN:
@@ -2594,49 +2782,55 @@ def main_menu():
                     set_music_volume(music_volume + 0.05)
                 elif event.key == pygame.K_RETURN:
                     if selected == 0:
+                        fade_out_blocking()
                         return
                     elif selected == 1:
-                        create_character_menu()
+                        run_transition(create_character_menu)
                     elif selected == 2:
-                        theme_menu()
+                        run_transition(theme_menu)
                     elif selected == 3:
-                        changelog_menu()
+                        run_transition(changelog_menu)
                     elif selected == 4:
-                        credits_menu()
+                        run_transition(credits_menu)
                     elif selected == 5:
                         # Volume is controlled directly with LEFT/RIGHT.
                         pass
                     else:
+                        fade_out_blocking()
                         pygame.quit()
                         sys.exit()
 
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if fade_mode == "idle" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for i in range(len(options)):
-                    rect = pygame.Rect(WIDTH // 2 - 161, 322 + i * 36, 322, 30)
+                    rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 42 + i * 36, menu_rect.w - 48, 30)
                     if rect.collidepoint(event.pos):
                         selected = i
                         if i == 0:
+                            fade_out_blocking()
                             return
                         elif i == 1:
-                            create_character_menu()
+                            run_transition(create_character_menu)
                         elif i == 2:
-                            theme_menu()
+                            run_transition(theme_menu)
                         elif i == 3:
-                            changelog_menu()
+                            run_transition(changelog_menu)
                         elif i == 4:
-                            credits_menu()
+                            run_transition(credits_menu)
                         elif i == 5:
                             # Clicking the volume option selects it;
                             # LEFT/RIGHT changes the volume.
                             pass
                         else:
+                            fade_out_blocking()
                             pygame.quit()
                             sys.exit()
 
         draw_developer_credit()
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
+        age += 1
 
 
 # ============================================================
@@ -2662,8 +2856,10 @@ def create_character_menu():
 
     fields = ["NAME", "HP", "SPEED", "TEAR SPEED", "FIRE RATE", "RANGE", "DAMAGE", "BULLET SIZE", "COLOR", "CREATE"]
     selected = 0
+    age = 0
 
     while True:
+        tick_fade()
         draw_gradient_background()
 
         text_center("CHARACTER CREATOR", font_title, WHITE, 22)
@@ -2673,7 +2869,7 @@ def create_character_menu():
         )
 
         # Preview
-        preview = pygame.Rect(25, 125, 280, 390)
+        preview = draw_fade_enter(age, pygame.Rect(25, 125, 280, 390))
         panel(preview, PANEL, BORDER, 16, 1)
         preview_color = CUSTOM_COLORS[color_index]
 
@@ -2689,7 +2885,7 @@ def create_character_menu():
         text_center("CUSTOM", font_small, MUTED, 320, 165)
 
         # Editor
-        editor = pygame.Rect(320, 125, 460, 390)
+        editor = draw_fade_enter(age, pygame.Rect(320, 125, 460, 390))
         panel(editor, PANEL, BORDER, 16, 1)
 
         values = [
@@ -2754,7 +2950,14 @@ def create_character_menu():
                 sys.exit()
 
             if event.type == pygame.KEYDOWN:
-                if selected == 0 and event.key != pygame.K_ESCAPE:
+                if event.key == pygame.K_ESCAPE:
+                    request_menu_exit()
+                    continue
+
+                if fade_mode != "idle":
+                    continue
+
+                if selected == 0:
                     if event.key == pygame.K_BACKSPACE:
                         name = name[:-1]
                     elif event.key == pygame.K_SPACE and len(name) < 24:
@@ -2764,9 +2967,6 @@ def create_character_menu():
                     # Name editing consumes the key so it doesn't also change fields.
                     if event.key not in (pygame.K_UP, pygame.K_DOWN):
                         continue
-
-                if event.key == pygame.K_ESCAPE:
-                    return
 
                 if event.key == pygame.K_UP:
                     selected = (selected - 1) % len(fields)
@@ -2792,9 +2992,6 @@ def create_character_menu():
                         bullet_size = max(2, min(30, bullet_size + direction))
                     elif selected == 8:
                         color_index = (color_index + direction) % len(CUSTOM_COLORS)
-
-                elif event.key == pygame.K_BACKSPACE and selected == 0:
-                    name = name[:-1]
 
                 elif event.key == pygame.K_RETURN and selected == 0:
                     # Enter while editing the name simply keeps the current name.
@@ -2823,9 +3020,9 @@ def create_character_menu():
                         "ability_desc": "A balanced burst of shots all around you.",
                         "ability_cd": 8
                     }
-                    return
+                    request_menu_exit()
 
-            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and fade_mode == "idle":
                 # Clicking a field selects it; clicking CREATE confirms it.
                 y_check = 145
                 for i in range(len(fields) - 1):
@@ -2857,11 +3054,16 @@ def create_character_menu():
                         "ability_desc": "A balanced burst of shots all around you.",
                         "ability_cd": 8
                     }
-                    return
+                    request_menu_exit()
 
+        if exit_ok:
+            reset_exit_ok()
+            return
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
+        age += 1
 
 
 # ============================================================
@@ -2880,6 +3082,7 @@ def run_monika_unlock_puzzle():
     feedback = ""
 
     while True:
+        tick_fade()
         draw_gradient_background()
         tick = pygame.time.get_ticks()
         pulse = int(120 + 110 * (0.5 + 0.5 * math.sin(tick / 150)))
@@ -2937,9 +3140,9 @@ def run_monika_unlock_puzzle():
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
-            if event.type == pygame.KEYDOWN:
+            if event.type == pygame.KEYDOWN and fade_mode == "idle":
                 if event.key == pygame.K_ESCAPE:
-                    return False
+                    request_menu_exit()
                 if event.key == pygame.K_BACKSPACE:
                     typed_answer = typed_answer[:-1]
                     feedback = ""
@@ -2951,6 +3154,11 @@ def run_monika_unlock_puzzle():
                     typed_answer += event.unicode.upper()
                     feedback = ""
 
+        if exit_ok:
+            reset_exit_ok()
+            return False
+
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
@@ -2961,6 +3169,7 @@ def run_character_menu():
     selected_index = 0
 
     while True:
+        tick_fade()
         draw_gradient_background()
 
         text_center("CHOOSE YOUR CHARACTER", font_title, WHITE, 22)
@@ -3102,9 +3311,9 @@ def run_character_menu():
                 pygame.quit()
                 sys.exit()
 
-            if event.type == pygame.KEYDOWN:
+            if fade_mode == "idle" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    return None
+                    request_menu_exit()
                 if event.key == pygame.K_UP:
                     selected_index = (selected_index - 1) % len(names)
                 elif event.key == pygame.K_DOWN:
@@ -3116,9 +3325,10 @@ def run_character_menu():
                         unlock_result = run_monika_unlock_puzzle()
                         monika_unlocked = bool(unlock_result)
                     else:
+                        fade_out_blocking()
                         return selected
 
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if fade_mode == "idle" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 y_check = 130
                 for i, name in enumerate(visible):
                     rect = pygame.Rect(32, y_check, 276, 38)
@@ -3126,6 +3336,11 @@ def run_character_menu():
                         selected_index = start_i + i
                     y_check += 44
 
+        if exit_ok:
+            reset_exit_ok()
+            return None
+
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
@@ -3984,6 +4199,8 @@ def game_loop():
     ) = start_game()
 
     while True:
+
+        tick_fade()
 
         # ====================================================
         # EVENTS
@@ -6463,6 +6680,7 @@ def game_loop():
             )
 
 
+        draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
 
