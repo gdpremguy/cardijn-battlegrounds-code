@@ -1,0 +1,245 @@
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    min-height: 100vh;
+
+    display: flex;
+    justify-content: center;
+    align-items: center;
+
+    background:
+        radial-gradient(circle at top, #1b2b20 0%, transparent 45%),
+        linear-gradient(135deg, #080b09, #111713);
+
+    color: #ffffff;
+
+    font-family: Arial, Helvetica, sans-serif;
+}
+
+
+/* Main container */
+
+.container {
+    width: 100%;
+    max-width: 900px;
+    padding: 30px;
+}
+
+
+/* Main game card */
+
+.game-card {
+    position: relative;
+
+    text-align: center;
+
+    padding: 70px 50px 55px;
+
+    background: rgba(20, 26, 22, 0.92);
+
+    border: 1px solid rgba(76, 175, 80, 0.3);
+    border-radius: 20px;
+
+    box-shadow:
+        0 25px 60px rgba(0, 0, 0, 0.55),
+        0 0 40px rgba(76, 175, 80, 0.08);
+
+    overflow: hidden;
+}
+
+
+/* Subtle top highlight */
+
+.game-card::before {
+    content: "";
+
+    position: absolute;
+
+    top: 0;
+    left: 0;
+    right: 0;
+
+    height: 3px;
+
+    background: linear-gradient(
+        90deg,
+        transparent,
+        #4caf50,
+        #8cff91,
+        #4caf50,
+        transparent
+    );
+}
+
+
+/* Version badge */
+
+.badge {
+    display: inline-block;
+
+    margin-bottom: 20px;
+
+    padding: 6px 14px;
+
+    border-radius: 20px;
+
+    background: rgba(76, 175, 80, 0.12);
+
+    border: 1px solid rgba(76, 175, 80, 0.35);
+
+    color: #7cff83;
+
+    font-size: 13px;
+    font-weight: bold;
+
+    letter-spacing: 1px;
+
+    text-transform: uppercase;
+}
+
+
+/* Main title */
+
+h1 {
+    font-size: clamp(42px, 7vw, 72px);
+
+    font-weight: 800;
+
+    letter-spacing: -2px;
+
+    margin-bottom: 12px;
+
+    color: #ffffff;
+
+    text-shadow:
+        0 0 20px rgba(76, 175, 80, 0.2);
+}
+
+
+/* Subtitle */
+
+h2 {
+    font-size: 22px;
+
+    font-weight: 400;
+
+    color: #aeb8b0;
+
+    margin-bottom: 25px;
+}
+
+
+/* Description */
+
+.description {
+    max-width: 600px;
+
+    margin: 0 auto 35px;
+
+    color: #89948c;
+
+    font-size: 16px;
+
+    line-height: 1.6;
+}
+
+
+/* Download button */
+
+.download-button {
+    display: inline-block;
+
+    padding: 15px 34px;
+
+    border-radius: 10px;
+
+    background: linear-gradient(
+        135deg,
+        #4caf50,
+        #388e3c
+    );
+
+    color: white;
+
+    font-size: 17px;
+    font-weight: bold;
+
+    text-decoration: none;
+
+    box-shadow:
+        0 8px 25px rgba(76, 175, 80, 0.25);
+
+    transition:
+        transform 0.2s ease,
+        box-shadow 0.2s ease,
+        filter 0.2s ease;
+}
+
+
+/* Button hover */
+
+.download-button:hover {
+    transform: translateY(-3px);
+
+    filter: brightness(1.12);
+
+    box-shadow:
+        0 12px 35px rgba(76, 175, 80, 0.4);
+}
+
+
+/* Button click */
+
+.download-button:active {
+    transform: translateY(0);
+
+    box-shadow:
+        0 5px 15px rgba(76, 175, 80, 0.25);
+}
+
+
+/* File information */
+
+.file-info {
+    margin-top: 18px;
+
+    color: #667068;
+
+    font-size: 13px;
+
+    letter-spacing: 0.5px;
+}
+
+
+/* Mobile */
+
+@media (max-width: 600px) {
+
+    .container {
+        padding: 18px;
+    }
+
+    .game-card {
+        padding: 55px 25px 40px;
+    }
+
+    h1 {
+        letter-spacing: -1px;
+    }
+
+    h2 {
+        font-size: 19px;
+    }
+
+    .description {
+        font-size: 15px;
+    }
+
+    .download-button {
+        width: 100%;
+    }
+}
