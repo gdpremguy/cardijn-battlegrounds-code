@@ -2702,14 +2702,14 @@ def main_menu():
 
         # Brand / title with a gentle breathing glow
         title_pulse = int(16 + 9 * (0.5 + 0.5 * math.sin(pygame.time.get_ticks() * 0.004)))
-        glow_circle((WIDTH // 2, 88), 44, ACCENT, title_pulse)
-        pygame.draw.circle(screen, PANEL_2, (WIDTH // 2, 88), 40)
-        pygame.draw.circle(screen, ACCENT, (WIDTH // 2, 88), 40, 2)
-        text_center("CB", font_big, WHITE, 62)
+        glow_circle((WIDTH // 2, 72), 44, ACCENT, title_pulse)
+        pygame.draw.circle(screen, PANEL_2, (WIDTH // 2, 72), 36)
+        pygame.draw.circle(screen, ACCENT, (WIDTH // 2, 72), 36, 2)
+        text_center("CB", font_big, WHITE, 50)
+        text_center("V1.6", font_tiny, MUTED, 112)
 
-        text_center("CARDIJN", font_title, WHITE, 142)
-        text_center("BATTLEGROUNDS", font_title, ACCENT, 190)
-        text_center("V1.6", font_tiny, MUTED, 250)
+        text_center("CARDIJN", font_title, WHITE, 132)
+        text_center("BATTLEGROUNDS", font_title, ACCENT, 206)
 
         # Music credits
         music_x = WIDTH - 100
@@ -3173,7 +3173,6 @@ def run_character_menu():
         draw_gradient_background()
 
         text_center("CHOOSE YOUR CHARACTER", font_title, WHITE, 22)
-        (font_small, MUTED, 80)
 
         selected = names[selected_index]
         data = CHARACTERS[selected]
@@ -3210,6 +3209,17 @@ def run_character_menu():
             screen.blit(surf, (rect.x + 26, rect.centery - surf.get_height() // 2))
             y += 44
 
+        # Back / main-menu button so the player can always escape this screen.
+        back_rect = pygame.Rect(32, 524, 276, 34)
+        back_hovered = back_rect.collidepoint(pygame.mouse.get_pos())
+        pygame.draw.rect(screen, ACCENT if back_hovered else PANEL_2, back_rect,
+                         border_radius=9)
+        pygame.draw.rect(screen, BORDER, back_rect, 1, border_radius=9)
+        back_label = font_enemy.render(
+            "BACK TO MAIN MENU", True, BLACK if back_hovered else WHITE
+        )
+        screen.blit(back_label, back_label.get_rect(center=back_rect.center))
+
         # Detail panel
         detail = pygame.Rect(340, 115, 440, 450)
         panel(detail, PANEL, BORDER, 16, 1)
@@ -3225,13 +3235,13 @@ def run_character_menu():
         else:
             pygame.draw.rect(screen, colour, (cx - 15, cy - 15, 30, 30), border_radius=7)
 
-        text_center("LOCKED" if locked else selected, font_big, colour, 220, 560)
+        text_center("LOCKED" if locked else selected, font_big, colour, 210, 560)
         # Only Monika uses the puzzle prompt. Other characters never show
         if locked and selected == "Monika":
             detail_text = "Solve the tile puzzle to unlock Monika."
         else:
             detail_text = data["desc"].strip() or "No description."
-        text_center(detail_text, font_small, LIGHT_GRAY, 268, 560)
+        text_center(detail_text, font_small, LIGHT_GRAY, 274, 560)
 
         # Stat bars
         stats = [
@@ -3301,9 +3311,9 @@ def run_character_menu():
                 desc_s = font_tiny.render(line_text, True, MUTED)
                 screen.blit(desc_s, (365, 534 + line_index * 15))
 
-        controls = ("↑ ↓ SELECT     ENTER PUZZLE / PLAY     ESC BACK"
+        controls = ("↑ ↓ SELECT     ENTER PUZZLE / PLAY     ESC MAIN MENU"
                     if selected == "Monika" and locked else
-                    "↑ ↓ SELECT     ENTER PLAY     ESC BACK")
+                    "↑ ↓ SELECT     ENTER PLAY     ESC MAIN MENU")
         text_center(controls, font_tiny, MUTED, 585)
 
         for event in pygame.event.get():
@@ -3329,6 +3339,9 @@ def run_character_menu():
                         return selected
 
             if fade_mode == "idle" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+                if back_rect.collidepoint(event.pos):
+                    request_menu_exit()
+                    continue
                 y_check = 130
                 for i, name in enumerate(visible):
                     rect = pygame.Rect(32, y_check, 276, 38)
@@ -3488,7 +3501,7 @@ def shop_menu(player, score):
             (
                 WIDTH // 2 -
                 points.get_width() // 2,
-                80
+                100
             )
         )
 
@@ -3747,7 +3760,7 @@ def pause_menu(player, score):
 
         pause_card = pygame.Rect(WIDTH // 2 - 205, 35, 410, 525)
         panel(pause_card, PANEL, BORDER, 20, 1)
-        text_center("PAUSED", font_title, YELLOW, 60)
+        text_center("PAUSED", font_title, YELLOW, 48)
         text_center(f"{score:,} POINTS", font_ui, GOLD, 125)
         section_label("GAME MENU", pause_card.x + 35, 165)
 
@@ -3952,6 +3965,9 @@ def start_game():
         if chosen is not None:
             break
 
+        # Escaping the character select returns to the title screen.
+        main_menu()
+
     # Switch away from the menu track only once actual combat begins.
     play_music("ingame")
 
@@ -4072,12 +4088,12 @@ def choose_wave_upgrade(player, wave):
         pulse = 0.5 + 0.5 * math.sin(tick / 180)
 
         title = font_title.render("WAVE COMPLETE", True, WHITE)
-        screen.blit(title, title.get_rect(center=(WIDTH // 2, 72)))
+        screen.blit(title, title.get_rect(center=(WIDTH // 2, 68)))
         sub = font_small.render(
             f"WAVE {wave} CLEARED  •  CHOOSE YOUR UPGRADE",
             True, GOLD
         )
-        screen.blit(sub, sub.get_rect(center=(WIDTH // 2, 112)))
+        screen.blit(sub, sub.get_rect(center=(WIDTH // 2, 116)))
 
         card_w, card_h = 225, 265
         gap = 18
@@ -6330,13 +6346,15 @@ def game_loop():
             hp_label = font_tiny.render("HEALTH", True, MUTED)
             screen.blit(hp_label, (20, 38))
 
-            hp_text = font_enemy.render(
-                f"{player.name}: "
-                f"{player.hp}/"
-                f"{player.max_hp} HP",
-                True,
-                WHITE
-            )
+            hp_text_name = player.name
+            hp_text_hp = f"{player.hp}/{player.max_hp} HP"
+            hp_text_full = f"{player.name}: {hp_text_hp}"
+            if font_enemy.size(hp_text_full)[0] > 205:
+                while (len(hp_text_name) > 1 and
+                       font_enemy.size(f"{hp_text_name}: {hp_text_hp}")[0] > 205):
+                    hp_text_name = hp_text_name[:-1]
+                hp_text_full = f"{hp_text_name}…: {hp_text_hp}"
+            hp_text = font_enemy.render(hp_text_full, True, WHITE)
 
             screen.blit(
                 hp_text,
@@ -6364,7 +6382,7 @@ def game_loop():
             # ====================================================
 
             wave_surf = font_ui.render(f"WAVE {wave}", True, WHITE)
-            wave_box = pygame.Rect(WIDTH // 2 - 65, 12, 130, 42)
+            wave_box = pygame.Rect(530 - 65, 12, 130, 42)
             panel(wave_box, PANEL, ACCENT, 12, 1)
             screen.blit(
                 wave_surf,
@@ -6426,13 +6444,13 @@ def game_loop():
                 LIGHT_GRAY
             )
 
-            upgrade_box = pygame.Rect(205, 558, 390, 30)
+            upgrade_box = pygame.Rect(205, 536, 390, 30)
             panel(upgrade_box, PANEL, BORDER, 9, 1)
             screen.blit(
                 upgrade_text,
                 (
                     upgrade_box.centerx - upgrade_text.get_width() // 2,
-                    565
+                    upgrade_box.y + 5
                 )
             )
 
