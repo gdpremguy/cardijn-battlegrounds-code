@@ -2610,11 +2610,9 @@ def credits_menu():
 # ============================================================
 
 CHANGELOG_ENTRIES = [
-    ("Fixed wave transition banner showing the next wave number"),
-    ("Character gameplay identities and passive abilities"),
-    ("Between-wave three-choice upgrade system"),
-    ("Wave transition presentation and upgrade screen polish"),
-    ("Fixed character passive text overflowing the detail panel"),
+    ("Added to Credits"),
+    ("Added Kody"),
+    ("Updated UI"),
 ]
 
 def changelog_menu():
@@ -2627,7 +2625,7 @@ def changelog_menu():
         tick_fade()
         draw_gradient_background()
         text_center("CHANGELOG", font_title, WHITE, 28)
-        text_center("CARDIJN BATTLEGROUNDS V1.6", font_small, MUTED, 82)
+        text_center("CARDIJN BATTLEGROUNDS V1.7", font_small, MUTED, 82)
 
         card = draw_fade_enter(age, pygame.Rect(55, 115, 690, 410))
         panel(card, PANEL, BORDER, 18, 1)
@@ -2737,7 +2735,7 @@ def main_menu():
         pygame.draw.circle(screen, PANEL_2, (WIDTH // 2, 72), 36)
         pygame.draw.circle(screen, ACCENT, (WIDTH // 2, 72), 36, 2)
         text_center("CB", font_big, WHITE, 50)
-        text_center("V1.6", font_tiny, MUTED, 112)
+        text_center("V1.7", font_tiny, MUTED, 112)
 
         text_center("CARDIJN", font_title, WHITE, 132)
         text_center("BATTLEGROUNDS", font_title, ACCENT, 206)
