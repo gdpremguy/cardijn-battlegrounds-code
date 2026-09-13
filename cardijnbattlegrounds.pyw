@@ -34,18 +34,47 @@ def distance(x1, y1, x2, y2):
     return math.hypot(x2 - x1, y2 - y1)
 
 
+def asset_roots():
+    """Return candidate folders for optional assets (source run and packaged exe)."""
+    roots = [ASSET_DIR]
+    if hasattr(sys, "_MEIPASS"):
+        roots.append(sys._MEIPASS)
+    roots.append(os.path.dirname(os.path.abspath(sys.executable)))
+    seen = set()
+    unique = []
+    for root in roots:
+        root = os.path.normcase(os.path.abspath(root))
+        if root not in seen:
+            seen.add(root)
+            unique.append(root)
+    return unique
+
+
 def find_asset(filenames):
     """Return the first supplied asset found beside the game, if any."""
-    for filename in filenames:
-        path = os.path.join(ASSET_DIR, filename)
-        if os.path.isfile(path):
-            return path
+    for root in asset_roots():
+        for filename in filenames:
+            path = os.path.join(root, filename)
+            if os.path.isfile(path):
+                return path
     return None
+
+
+def ensure_mixer():
+    """Make sure the mixer is running, retrying if the audio device was busy."""
+    try:
+        if not pygame.mixer.get_init():
+            pygame.mixer.init()
+        return pygame.mixer.get_init() is not None
+    except pygame.error:
+        return False
 
 
 def play_music(kind):
     """Loop the appropriate optional menu or in-game track without crashing."""
     global current_music
+    if not ensure_mixer():
+        return
     filenames = MENU_MUSIC_FILES if kind == "menu" else INGAME_MUSIC_FILES
     music_path = find_asset(filenames)
     if music_path == current_music:
@@ -67,6 +96,8 @@ def set_music_volume(value):
     """Set music volume from 0.0 to 1.0 and apply it immediately."""
     global music_volume
     music_volume = max(0.0, min(1.0, float(value)))
+    if not ensure_mixer():
+        return
     try:
         pygame.mixer.music.set_volume(music_volume)
     except pygame.error:
@@ -2543,17 +2574,17 @@ def credits_menu():
         text_center("CREDITS", font_title, WHITE, 70)
         text_center("because im not a bad person", font_small, MUTED, 125)
 
-        credit_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 260, 170, 520, 300))
+        credit_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 260, 160, 520, 360))
         panel(credit_rect, PANEL, BORDER, 16, 1)
 
-        text_center("CARDIJN BATTLEGROUNDS", font_big, ACCENT, 205)
-        text_center("Created by Jamie Chambers", font_ui, WHITE, 270)
-        text_center("Fur:Trash for the amazing music.", font_small, LIGHT_GRAY, 323)
-        text_center("The fizcord discord server for promoting and ideas.", font_small, LIGHT_GRAY, 350)
-        text_center("@troll_the_world on discord for making the wiki", font_small, LIGHT_GRAY, 374)
-        text_center("And my friends for making this possible! <3", font_small, LIGHT_GRAY, 398)
-        text_center("Thanks for playing!", font_ui, ACCENT, 440)
-        text_center("ESC: back", font_tiny, MUTED, 515)
+        text_center("CARDIJN BATTLEGROUNDS", font_big, ACCENT, 195)
+        text_center("Created by Jamie Chambers", font_ui, WHITE, 265)
+        text_center("Fur:Trash for the amazing music.", font_small, LIGHT_GRAY, 330)
+        text_center("The fizcord discord server for promoting and ideas.", font_small, LIGHT_GRAY, 354)
+        text_center("@troll_the_world on discord for making the wiki", font_small, LIGHT_GRAY, 378)
+        text_center("And my friends for making this possible! <3", font_small, LIGHT_GRAY, 402)
+        text_center("Thanks for playing!", font_ui, ACCENT, 455)
+        text_center("ESC: back", font_tiny, MUTED, 545)
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -3209,17 +3240,6 @@ def run_character_menu():
             screen.blit(surf, (rect.x + 26, rect.centery - surf.get_height() // 2))
             y += 44
 
-        # Back / main-menu button so the player can always escape this screen.
-        back_rect = pygame.Rect(32, 524, 276, 34)
-        back_hovered = back_rect.collidepoint(pygame.mouse.get_pos())
-        pygame.draw.rect(screen, ACCENT if back_hovered else PANEL_2, back_rect,
-                         border_radius=9)
-        pygame.draw.rect(screen, BORDER, back_rect, 1, border_radius=9)
-        back_label = font_enemy.render(
-            "BACK TO MAIN MENU", True, BLACK if back_hovered else WHITE
-        )
-        screen.blit(back_label, back_label.get_rect(center=back_rect.center))
-
         # Detail panel
         detail = pygame.Rect(340, 115, 440, 450)
         panel(detail, PANEL, BORDER, 16, 1)
@@ -3339,9 +3359,6 @@ def run_character_menu():
                         return selected
 
             if fade_mode == "idle" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if back_rect.collidepoint(event.pos):
-                    request_menu_exit()
-                    continue
                 y_check = 130
                 for i, name in enumerate(visible):
                     rect = pygame.Rect(32, y_check, 276, 38)
