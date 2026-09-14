@@ -370,6 +370,7 @@ def draw_text_shadow(text, font, colour, x, y, offset=(2, 2), alpha=140):
 def button(rect, label, active=False, accent=None, subtitle=None):
     """Consistent modern button with hover/selection treatment."""
     accent = accent or ACCENT
+    burst_on_hover(rect, accent)
     if active:
         draw_rect_glow(rect, accent, radius=10, alpha=50, spread=10)
     draw_ui_shadow(rect, radius=10, offset=(0, 4), alpha=65, spread=5)
@@ -482,6 +483,98 @@ def draw_fade_enter(age_frames, target_rect, drift=18):
     moved = target_rect.copy()
     moved.y += int(drift * (1 - t))
     return moved
+
+
+# ============================================================
+# PARTICLE EFFECTS
+# ============================================================
+#
+# A small, shared particle pool powers the menu hover bursts and
+# the combat shooting/impact VFX.  Particles are plain dicts so
+# they are cheap to spawn and cull even at 120 FPS.
+
+MAX_PARTICLES = 500
+g_particles = []   # {x, y, vx, vy, life, max_life, size, colour}
+g_flashes = []     # short-lived muzzle glow {x, y, radius, life, max_life, colour, alpha}
+_particle_surf_cache = {}   # (size, colour) -> pre-rendered soft dot
+
+
+def spawn_burst(x, y, colour, count=14, speed=3.0, angle=0, spread=360,
+                size=3, life=28, gravity=0.0):
+    """Spawn a fan of particles anywhere from a full circle to a tight cone."""
+    global g_particles
+    if len(g_particles) >= MAX_PARTICLES:
+        return
+    for _ in range(count):
+        if len(g_particles) >= MAX_PARTICLES:
+            return
+        a = math.radians(angle) + random.uniform(-math.radians(spread) * 0.5,
+                                                 math.radians(spread) * 0.5)
+        v = random.uniform(speed * 0.45, speed)
+        g_particles.append({
+            "x": x + random.uniform(-2, 2),
+            "y": y + random.uniform(-2, 2),
+            "vx": math.cos(a) * v,
+            "vy": math.sin(a) * v,
+            "life": random.randint(max(2, life // 2), life),
+            "max_life": life,
+            "size": random.uniform(size * 0.5, size),
+            "colour": colour,
+            "gravity": gravity,
+        })
+
+
+def update_fx():
+    """Advance every live particle and muzzle flash by one frame."""
+    for p in g_particles[:]:
+        p["x"] += p["vx"]
+        p["y"] += p["vy"]
+        p["vx"] *= 0.90
+        p["vy"] *= 0.90
+        p["vy"] += p["gravity"]
+        p["life"] -= 1
+        if p["life"] <= 0:
+            g_particles.remove(p)
+
+    for f in g_flashes[:]:
+        f["life"] -= 1
+        if f["life"] <= 0:
+            g_flashes.remove(f)
+
+
+def draw_fx():
+    """Draw the active particles and muzzle flashes above the scene."""
+    for p in g_particles:
+        alpha = int(255 * (p["life"] / p["max_life"]))
+        size = max(1, int(p["size"]))
+        key = (size, p["colour"])
+        surf = _particle_surf_cache.get(key)
+        if surf is None:
+            surf = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+            pygame.draw.circle(surf, (*p["colour"], 255), (size, size), size)
+            _particle_surf_cache[key] = surf
+        surf.set_alpha(alpha)
+        screen.blit(surf, (int(p["x"]) - size, int(p["y"]) - size))
+
+    for f in g_flashes:
+        p = min(1.0, f["life"] / f["max_life"])
+        grow = f["radius"] * (1 + 0.8 * (1 - p))
+        glow_circle((f["x"], f["y"]), grow, f["colour"], int(f["alpha"] * p))
+
+
+# Tracks which buttons are hovered so a burst only fires on the
+# transition from "not hovered" to "hovered", not every single frame.
+_hover_state = {}
+
+
+def burst_on_hover(rect, colour, spread=360):
+    """Emit a small particle burst the moment the mouse enters a control."""
+    key = (rect.x, rect.y, rect.w, rect.h)
+    hovering = rect.collidepoint(pygame.mouse.get_pos())
+    if hovering and not _hover_state.get(key, False):
+        spawn_burst(rect.centerx, rect.centery, colour,
+                    count=12, speed=2.4, spread=spread, size=2.5, life=22)
+    _hover_state[key] = hovering
 
 
 # ============================================================
@@ -1745,6 +1838,10 @@ def damage_all_enemies(
                         )
                     )
 
+            spawn_burst(e.x + e.size // 2, e.y + e.size // 2,
+                        (255, 120, 80), count=14, speed=3.0,
+                        spread=360, size=3, life=22)
+
             enemies.remove(e)
             kills += score_gain
 
@@ -2513,7 +2610,9 @@ def theme_menu():
 
         for i, name in enumerate(names):
             rect = pygame.Rect(WIDTH // 2 - 175, panel_rect.y + 20 + i * 46, 350, 38)
-            active = i == selected or rect.collidepoint(pygame.mouse.get_pos())
+            hovered = rect.collidepoint(pygame.mouse.get_pos())
+            active = i == selected or hovered
+            burst_on_hover(rect, THEMES[name]["ACCENT"])
             colour = BLACK if active else WHITE
             fill = THEMES[name]["ACCENT"] if active else PANEL_2
             if active:
@@ -2525,6 +2624,8 @@ def theme_menu():
             screen.blit(label, (rect.centerx - label.get_width() // 2, rect.centery - label.get_height() // 2))
 
         text_center("ENTER / CLICK  •  ESC TO GO BACK", font_tiny, MUTED, 525)
+        update_fx()
+        draw_fx()
 
         if exit_ok:
             reset_exit_ok()
@@ -2574,17 +2675,19 @@ def credits_menu():
         text_center("CREDITS", font_title, WHITE, 70)
         text_center("because im not a bad person", font_small, MUTED, 125)
 
-        credit_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 260, 160, 520, 360))
+        credit_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 260, 145, 520, 405))
         panel(credit_rect, PANEL, BORDER, 16, 1)
 
-        text_center("CARDIJN BATTLEGROUNDS", font_big, ACCENT, 195)
-        text_center("Created by @snakepoledancing", font_ui, WHITE, 265)
-        text_center("Fur:Trash for the amazing music.", font_small, LIGHT_GRAY, 330)
-        text_center("The fizcord discord server for promoting and ideas.", font_small, LIGHT_GRAY, 354)
-        text_center("@troll_the_world on discord for making the wiki", font_small, LIGHT_GRAY, 378)
-        text_center("And my friends for making this possible! <3", font_small, LIGHT_GRAY, 402)
-        text_center("Thanks for playing!", font_ui, ACCENT, 455)
-        text_center("ESC: back", font_tiny, MUTED, 545)
+        text_center("CARDIJN BATTLEGROUNDS", font_big, ACCENT, 190)
+        text_center("Created by @snakepoledancing", font_ui, WHITE, 260)
+        text_center("Fur:Trash for the amazing music.", font_small, LIGHT_GRAY, 325)
+        text_center("The fizcord discord server for promoting and ideas.", font_small, LIGHT_GRAY, 349)
+        text_center("@troll_the_world on discord for making the wiki", font_small, LIGHT_GRAY, 373)
+        text_center("And my friends for making this possible! <3", font_small, LIGHT_GRAY, 397)
+        text_center("Thanks for playing!", font_ui, ACCENT, 445)
+        text_center("ESC: back", font_tiny, MUTED, 505)
+        update_fx()
+        draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -2627,7 +2730,7 @@ def changelog_menu():
         text_center("CHANGELOG", font_title, WHITE, 28)
         text_center("CARDIJN BATTLEGROUNDS V1.7", font_small, MUTED, 82)
 
-        card = draw_fade_enter(age, pygame.Rect(55, 115, 690, 410))
+        card = draw_fade_enter(age, pygame.Rect(55, 110, 690, 428))
         panel(card, PANEL, BORDER, 18, 1)
 
         start = max(0, min(scroll, max(0, len(CHANGELOG_ENTRIES) - visible_count)))
@@ -2637,6 +2740,10 @@ def changelog_menu():
         for i, item in enumerate(visible):
             active = (start + i) == selected
             row = pygame.Rect(75, y, 650, 34)
+            hovered = row.collidepoint(pygame.mouse.get_pos())
+            if hovered and not active:
+                burst_on_hover(row, ACCENT)
+                active = True
 
             if active:
                 draw_rect_glow(row, ACCENT, radius=8, alpha=30, spread=8)
@@ -2668,9 +2775,11 @@ def changelog_menu():
         if start > 0:
             text_center("▲ MORE", font_tiny, MUTED, 120)
         if start + visible_count < len(CHANGELOG_ENTRIES):
-            text_center("▼ MORE", font_tiny, MUTED, 532)
+            text_center("▼ MORE", font_tiny, MUTED, 524)
 
         text_center("UP/DOWN: SCROLL   •   ENTER/ESC: BACK", font_tiny, MUTED, 565)
+        update_fx()
+        draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -2767,13 +2876,14 @@ def main_menu():
             (music_x - game_music_text.get_width() // 2, music_y + 48)
         )
 
-        # Main menu
-        menu_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 185, 280, 370, 324))
+        # Main menu — sized so the card never runs off the bottom of the
+        # 800x600 window, with even margins around its options.
+        menu_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 185, 268, 370, 300))
         panel(menu_rect, PANEL, BORDER, 18, 1)
         section_label("MAIN MENU", menu_rect.x + 24, menu_rect.y + 15)
 
         # Smoothly glide the selection highlight between options.
-        target_y = menu_rect.y + 42 + selected * 36
+        target_y = menu_rect.y + 40 + selected * 36
         selected_y = lerp(selected_y, target_y, 0.38)
         if abs(selected_y - target_y) < 0.4:
             selected_y = target_y
@@ -2782,18 +2892,20 @@ def main_menu():
         draw_alpha_rect(highlight, ACCENT, radius=10, alpha=40)
 
         for i, option in enumerate(options):
-            rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 42 + i * 36, menu_rect.w - 48, 30)
+            rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 40 + i * 36, menu_rect.w - 48, 30)
             hovered = rect.collidepoint(pygame.mouse.get_pos())
             active = i == selected or hovered
             label = f"MUSIC VOLUME   {round(music_volume * 100)}%" if option == "MUSIC VOLUME" else option
             button(rect, label, active)
 
         if selected == 5:
-            bar_rect = pygame.Rect(menu_rect.x + 65, menu_rect.bottom - 9, menu_rect.w - 130, 5)
+            bar_rect = pygame.Rect(menu_rect.x + 65, menu_rect.bottom - 14, menu_rect.w - 130, 5)
             bar(bar_rect, music_volume, 1.0, ACCENT, back=GRAY)
 
         controls = "WASD MOVE   •   ARROWS SHOOT   •   E ABILITY   •   P PAUSE"
         text_center(controls, font_tiny, MUTED, 579)
+        update_fx()
+        draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -2831,7 +2943,7 @@ def main_menu():
 
             if fade_mode == "idle" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for i in range(len(options)):
-                    rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 42 + i * 36, menu_rect.w - 48, 30)
+                    rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 40 + i * 36, menu_rect.w - 48, 30)
                     if rect.collidepoint(event.pos):
                         selected = i
                         if i == 0:
@@ -2935,6 +3047,8 @@ def create_character_menu():
         for i, field in enumerate(fields[:-1]):
             active = i == selected
             rect = pygame.Rect(335, y, 430, 38)
+            hovered = rect.collidepoint(pygame.mouse.get_pos())
+            burst_on_hover(rect, preview_color if not active else ACCENT)
 
             if active:
                 pygame.draw.rect(screen, ACCENT, rect, border_radius=9)
@@ -2956,6 +3070,7 @@ def create_character_menu():
         # Create button
         create_rect = pygame.Rect(335, 455, 430, 38)
         active = selected == len(fields) - 1
+        burst_on_hover(create_rect, GREEN)
         pygame.draw.rect(
             screen, GREEN if active else PANEL_2,
             create_rect, border_radius=9
@@ -2972,6 +3087,8 @@ def create_character_menu():
             "NAME: TYPE • UP/DOWN SELECT • LEFT/RIGHT CHANGE • ENTER CREATE • ESC BACK",
             font_tiny, MUTED, 555
         )
+        update_fx()
+        draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -3049,6 +3166,8 @@ def create_character_menu():
                         "ability_desc": "A balanced burst of shots all around you.",
                         "ability_cd": 8
                     }
+                    spawn_burst(create_rect.centerx, create_rect.centery, GREEN,
+                                count=26, speed=3.4, spread=360, size=3, life=30)
                     request_menu_exit()
 
             elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and fade_mode == "idle":
@@ -3083,6 +3202,8 @@ def create_character_menu():
                         "ability_desc": "A balanced burst of shots all around you.",
                         "ability_cd": 8
                     }
+                    spawn_burst(create_rect.centerx, create_rect.centery, GREEN,
+                                count=26, speed=3.4, spread=360, size=3, life=30)
                     request_menu_exit()
 
         if exit_ok:
@@ -3223,6 +3344,7 @@ def run_character_menu():
             is_locked = ((name == "Monika" and not monika_unlocked) or
                          (name == "Kempson" and not kempson_unlocked))
             colour = MUTED if is_locked else CHARACTERS[name]["color"]
+            burst_on_hover(rect, colour)
 
             if active:
                 pygame.draw.rect(screen, colour, rect, border_radius=9)
@@ -3333,6 +3455,8 @@ def run_character_menu():
                     if selected == "Monika" and locked else
                     "↑ ↓ SELECT     ENTER PLAY     ESC MAIN MENU")
         text_center(controls, font_tiny, MUTED, 585)
+        update_fx()
+        draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -3488,7 +3612,7 @@ def shop_menu(player, score):
     while True:
 
         draw_gradient_background()
-        panel(pygame.Rect(28, 16, 744, 545), PANEL, BORDER, 18, 1)
+        panel(pygame.Rect(24, 20, 752, 536), PANEL, BORDER, 18, 1)
 
         title = font_title.render(
             "MR KEMPSON'S SHOP",
@@ -3545,12 +3669,22 @@ def shop_menu(player, score):
 
             else:
 
-                pygame.draw.rect(
-                    screen,
-                    GRAY,
-                    rect,
-                    2
-                )
+                hovered = rect.collidepoint(pygame.mouse.get_pos())
+                if hovered:
+                    burst_on_hover(rect, SHOP_BLUE)
+                    pygame.draw.rect(
+                        screen,
+                        SHOP_BLUE,
+                        rect,
+                        2
+                    )
+                else:
+                    pygame.draw.rect(
+                        screen,
+                        GRAY,
+                        rect,
+                        2
+                    )
 
                 colour = WHITE
 
@@ -3735,7 +3869,12 @@ def shop_menu(player, score):
 
                         score -= current_cost
                         player.shop_purchases[selected] += 1
+                        buy_rect = pygame.Rect(50, start_y + selected * 52, 450, 42)
+                        spawn_burst(buy_rect.centerx, buy_rect.centery, GOLD,
+                                    count=22, speed=3.2, spread=360, size=3, life=26)
 
+        update_fx()
+        draw_fx()
         draw_custom_cursor()
         pygame.display.flip()
 
@@ -3809,6 +3948,8 @@ def pause_menu(player, score):
             )
         )
 
+        update_fx()
+        draw_fx()
         draw_custom_cursor()
         pygame.display.flip()
 
@@ -4118,6 +4259,10 @@ def choose_wave_upgrade(player, wave):
         for i, (name, desc, kind) in enumerate(choices):
             rect = pygame.Rect(start_x + i * (card_w + gap), 160, card_w, card_h)
             active = i == selected
+            hovered = rect.collidepoint(pygame.mouse.get_pos())
+            if hovered:
+                burst_on_hover(rect, GOLD)
+                active = True
 
             border = GOLD if active else BORDER
             fill = PANEL_2 if active else PANEL
@@ -4196,6 +4341,8 @@ def choose_wave_upgrade(player, wave):
                     player.wave_banner_wave = wave
                     return
 
+        update_fx()
+        draw_fx()
         draw_custom_cursor()
         pygame.display.flip()
         clock.tick(FPS)
@@ -4602,6 +4749,23 @@ def game_loop():
                     )
                 )
 
+                # Muzzle VFX: a bright flash at the barrel plus a cone of
+                # sparks streaming out along the shot direction.
+                muzzle_angle = math.degrees(math.atan2(vy, vx))
+                spawn_burst(sx, sy, player.color,
+                            count=9, speed=2.8, angle=muzzle_angle,
+                            spread=50, size=2.5, life=16)
+                spawn_burst(sx, sy, WHITE,
+                            count=4, speed=3.4, angle=muzzle_angle,
+                            spread=14, size=2, life=10)
+                g_flashes.append({
+                    "x": sx, "y": sy,
+                    "radius": tear_radius + 5,
+                    "life": 5, "max_life": 5,
+                    "colour": player.color,
+                    "alpha": 170,
+                })
+
                 # Kirat fires side shots every fourth shot.
                 if player.name == "Kirat" and player.passive_shot_count % 4 == 0:
                     for side in (-1, 1):
@@ -4685,6 +4849,11 @@ def game_loop():
 
                 t.life -= 1
 
+                # Faint sparkle trail behind every tear.
+                if random.random() < 0.45:
+                    spawn_burst(t.x, t.y, TEAR_BLUE if not t.passive else (105, 185, 255),
+                                count=1, speed=0.6, spread=360, size=1.5, life=10)
+
                 if (
                     t.life <= 0
                     or t.x < -30
@@ -4705,10 +4874,15 @@ def game_loop():
                 for brick in bricks[:]:
                     brick_rect = pygame.Rect(brick.x, brick.y, brick.size, brick.size)
                     if tear_rect.colliderect(brick_rect):
+                        if t in tears:
+                            spawn_burst(t.x, t.y, ORANGE,
+                                        count=8, speed=2.2, spread=360,
+                                        size=2, life=14, gravity=0.05)
                         brick.hp -= t.damage
                         if brick.hp <= 0:
                             bricks.remove(brick)
-                        tears.remove(t)
+                        if t in tears:
+                            tears.remove(t)
                         break
 
 
@@ -5625,6 +5799,11 @@ def game_loop():
                         continue
                     t.hit_enemies.add(e)
 
+                    # Impact sparks where the tear connects.
+                    spawn_burst(t.x, t.y, TEAR_BLUE,
+                                count=6, speed=2.0, spread=360,
+                                size=2, life=14)
+
 
                     # --------------------------------------------
                     # BOSS
@@ -5697,6 +5876,14 @@ def game_loop():
 
                     if e.hp <= 0:
 
+                        # Enemy gives a visible pop when they die.
+                        spawn_burst(e.x + e.size // 2, e.y + e.size // 2,
+                                    (255, 120, 80), count=16, speed=3.0,
+                                    spread=360, size=3, life=24)
+                        spawn_burst(e.x + e.size // 2, e.y + e.size // 2,
+                                    WHITE, count=6, speed=2.2,
+                                    spread=360, size=2, life=18)
+
                         score += award_kill(player, e)
 
                         if player.name == "Will":
@@ -5750,6 +5937,23 @@ def game_loop():
             for e in enemies[:]:
 
                 if e.hp <= 0:
+
+                    # Bigger death explosion for bosses and mini-bosses.
+                    if e.is_boss or e.is_mini_boss or e.is_elite:
+                        spawn_burst(e.x + e.size // 2, e.y + e.size // 2,
+                                    GOLD, count=40, speed=4.2,
+                                    spread=360, size=3.5, life=34)
+                        spawn_burst(e.x + e.size // 2, e.y + e.size // 2,
+                                    ORANGE, count=20, speed=3.0,
+                                    spread=360, size=3, life=28)
+                        g_flashes.append({
+                            "x": e.x + e.size // 2,
+                            "y": e.y + e.size // 2,
+                            "radius": max(22, e.size),
+                            "life": 8, "max_life": 8,
+                            "colour": GOLD,
+                            "alpha": 150,
+                        })
 
                     if e.is_boss:
 
@@ -5824,6 +6028,7 @@ def game_loop():
                         pickup
                     )
 
+        update_fx()
 
         # ========================================================
         # RENDER
@@ -6713,6 +6918,7 @@ def game_loop():
             )
 
 
+        draw_fx()
         draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
