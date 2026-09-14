@@ -19,6 +19,12 @@ INGAME_MUSIC_FILES = ("ingame_music.ogg", "ingame_music.mp3", "ingame_music.wav"
                       "game_music.ogg", "game_music.mp3", "game_music.wav")
 SOGGY_CAT_FILES = ("soggycat.png", "soggycat.jpg", "soggycat.jpeg")
 DEVELOPER_IMAGE_FILES = ("developer.jpg", "developer.jpeg", "developer.png")
+
+# ------------------------------------------------------------
+# VERSION    Short version string shown across the UI.
+# ------------------------------------------------------------
+GAME_VERSION = "V1.8"
+
 current_music = None
 music_volume = 0.45
 
@@ -2728,9 +2734,9 @@ def credits_menu():
 # ============================================================
 
 CHANGELOG_ENTRIES = [
-    ("Added to Credits"),
-    ("Added Kody"),
-    ("Updated UI"),
+    ("Fixed music"),
+    ("Added particles"),
+    ("Updated UI again"),
 ]
 
 def changelog_menu():
@@ -2743,7 +2749,7 @@ def changelog_menu():
         tick_fade()
         draw_gradient_background()
         text_center("CHANGELOG", font_title, WHITE, 28)
-        text_center("CARDIJN BATTLEGROUNDS V1.7", font_small, MUTED, 82)
+        text_center(f"CARDIJN BATTLEGROUNDS {GAME_VERSION}", font_small, MUTED, 82)
 
         card = draw_fade_enter(age, pygame.Rect(55, 110, 690, 428))
         panel(card, PANEL, BORDER, 18, 1)
@@ -2771,9 +2777,9 @@ def changelog_menu():
                 if len(item) >= 2:
                     version, entry = item[0], item[1]
                 else:
-                    version, entry = "V1.6", item[0]
+                    version, entry = GAME_VERSION, item[0]
             else:
-                version, entry = "V1.6", item
+                version, entry = GAME_VERSION, item
 
             badge(version, row.x + 8, row.y + 5, ACCENT if active else BORDER)
             draw_text_shadow(
@@ -2858,7 +2864,7 @@ def main_menu():
         pygame.draw.circle(screen, PANEL_2, (WIDTH // 2, 72), 36)
         pygame.draw.circle(screen, ACCENT, (WIDTH // 2, 72), 36, 2)
         text_center("CB", font_big, WHITE, 50)
-        text_center("V1.7", font_tiny, MUTED, 112)
+        text_center(GAME_VERSION, font_tiny, MUTED, 112)
 
         text_center("CARDIJN", font_title, WHITE, 132)
         text_center("BATTLEGROUNDS", font_title, ACCENT, 206)
