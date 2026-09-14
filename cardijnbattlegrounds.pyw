@@ -2572,6 +2572,21 @@ def use_ability(
                 )
             )
 
+    # Soggy Cat sprays a watery barrage in every direction.
+    elif player.name == "Soggy Cat":
+        for i in range(18):
+            angle = i * math.pi * 2 / 18 + random.uniform(-0.12, 0.12)
+            tears.append(
+                TearEntity(
+                    cx, cy,
+                    math.cos(angle) * 15,
+                    math.sin(angle) * 15,
+                    95, 8,
+                    player.damage * 2,
+                    passive=True
+                )
+            )
+
     # Custom fighters get a balanced radial burst instead of having no ability.
     elif player.name.startswith("Custom Fighter"):
         for i in range(12):
@@ -2812,7 +2827,6 @@ def changelog_menu():
                             break
                         y_check += 37
 
-        draw_developer_credit()
         if exit_ok:
             reset_exit_ok()
             return
@@ -3315,7 +3329,7 @@ def run_monika_unlock_puzzle():
 
 def run_character_menu():
     global monika_unlocked, soggy_cat_unlocked, kempson_unlocked
-    names = [name for name in CHARACTERS if name != "Soggy Cat"]
+    names = list(CHARACTERS.keys())
     selected_index = 0
 
     while True:
