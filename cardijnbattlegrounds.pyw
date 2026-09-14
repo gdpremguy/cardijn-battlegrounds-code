@@ -3,6 +3,8 @@ import random
 import sys
 import math
 import os
+import json
+import time
 
 # ============================================================
 # INITIALISE
@@ -23,10 +25,83 @@ DEVELOPER_IMAGE_FILES = ("developer.jpg", "developer.jpeg", "developer.png")
 # ------------------------------------------------------------
 # VERSION    Short version string shown across the UI.
 # ------------------------------------------------------------
-GAME_VERSION = "V1.8.1"
+GAME_VERSION = "V1.9"
 
 current_music = None
 music_volume = 0.45
+
+# ------------------------------------------------------------
+# SAVE DATA  (stats, unlocks and preferences in saves.json)
+# ------------------------------------------------------------
+# The save file lives NEXT TO the game executable (or script).  When the
+# game is packaged with PyInstaller, that is the folder containing the .exe,
+# *not* the temporary _MEIPASS extraction folder, so it survives between runs.
+STATS_DEFAULTS = {
+    "best_score": 0,
+    "best_wave": 1,
+    "games_played": 0,
+    "total_kills": 0,
+    "kills_by_character": {},
+    "run_time_seconds": 0,
+    "monika_unlocked": False,
+    "music_volume": 0.45,
+    "theme": "Midnight",
+}
+
+STATS = None
+
+
+def save_path():
+    """Find the saves.json path beside the running game (.exe or script)."""
+    if getattr(sys, "frozen", False):
+        root = os.path.dirname(os.path.abspath(sys.executable))
+    else:
+        root = ASSET_DIR
+    return os.path.join(root, "saves.json")
+
+
+def load_stats():
+    """Load saved stats/unlocks/preferences, falling back to defaults."""
+    global STATS
+    stats = {key: (dict(value) if isinstance(value, dict) else value)
+             for key, value in STATS_DEFAULTS.items()}
+    try:
+        with open(save_path(), encoding="utf-8") as f:
+            saved = json.load(f)
+        if isinstance(saved, dict):
+            for key, value in saved.items():
+                if key not in STATS_DEFAULTS:
+                    continue
+                if key == "kills_by_character":
+                    if isinstance(value, dict):
+                        stats[key] = value
+                elif type(value) is type(STATS_DEFAULTS[key]):
+                    stats[key] = value
+    except (OSError, ValueError):
+        pass
+    STATS = stats
+    return STATS
+
+
+def save_stats():
+    """Persist stats atomically, ignoring read-only/frozen environments."""
+    if STATS is None:
+        return
+    try:
+        path = save_path()
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(STATS, f, indent=2)
+        os.replace(tmp, path)
+    except OSError:
+        pass
+
+
+def quit_game():
+    """Save any progress, then close the game cleanly."""
+    save_stats()
+    pygame.quit()
+    sys.exit()
 
 try:
     if not pygame.mixer.get_init():
@@ -99,25 +174,18 @@ def play_music(kind):
 
 
 def set_music_volume(value):
-    """Set music volume from 0.0 to 1.0 and apply it immediately."""
+    """Set music volume from 0.0 to 1.0, apply it immediately and save it."""
     global music_volume
     music_volume = max(0.0, min(1.0, float(value)))
+    if STATS is not None:
+        STATS["music_volume"] = music_volume
+        save_stats()
     if not ensure_mixer():
         return
     try:
         pygame.mixer.music.set_volume(music_volume)
     except pygame.error:
         pass
-
-
-def stop_music():
-    """Silence the menu track during active combat."""
-    global current_music
-    try:
-        pygame.mixer.music.stop()
-    except pygame.error:
-        pass
-    current_music = None
 
 
 def load_soggy_cat_image():
@@ -317,6 +385,10 @@ def apply_theme(name):
     VIGNETTE_SURFACE = pygame.Surface((WIDTH, HEIGHT), pygame.SRCALPHA)
     pygame.draw.circle(VIGNETTE_SURFACE, (*GLOW, 18), (WIDTH // 2, HEIGHT // 2), 330)
 
+    if STATS is not None:
+        STATS["theme"] = name
+        save_stats()
+
 # ============================================================
 # FONTS
 # ============================================================
@@ -426,7 +498,7 @@ def glow_circle(pos, radius, colour, alpha=45):
     )
 
 
-def bar(rect, value, maximum, fill, back=(35, 40, 55), height=None):
+def bar(rect, value, maximum, fill, back=(35, 40, 55)):
     x, y, w, h = rect
     pygame.draw.rect(screen, back, (x, y, w, h), border_radius=h // 2)
     ratio = 0 if maximum <= 0 else max(0, min(1, value / maximum))
@@ -451,12 +523,6 @@ def badge(text, x, y, colour=ACCENT):
 def lerp(a, b, t):
     """Smoothly interpolate between two values."""
     return a + (b - a) * t
-
-
-def pulse_val(base=0.5, amplitude=0.35, period=0.5, offset=0):
-    """Return an oscillating 0..1 value driven by the global clock."""
-    t = pygame.time.get_ticks() / 1000.0
-    return base + amplitude * math.sin(t * 2 * math.pi / period + offset)
 
 
 def ease_out(t):
@@ -503,6 +569,14 @@ MAX_PARTICLES = 500
 g_particles = []   # {x, y, vx, vy, life, max_life, size, colour}
 g_flashes = []     # short-lived muzzle glow {x, y, radius, life, max_life, colour, alpha}
 _particle_surf_cache = {}   # (size, colour) -> pre-rendered soft dot
+
+# Boss feedback: a short freeze plus a shaky frame when Mr Champion falls.
+shake_timer = 0
+shake_magnitude = 12
+hitstop = 0
+
+# Whether the next run starts in glass-cannon mode (x4 damage, 1 HP).
+glass_cannon_on = False
 
 
 def spawn_burst(x, y, colour, count=14, speed=3.0, angle=0, spread=360,
@@ -581,6 +655,107 @@ def burst_on_hover(rect, colour, spread=360):
         spawn_burst(rect.centerx, rect.centery, colour,
                     count=12, speed=2.4, spread=spread, size=2.5, life=22)
     _hover_state[key] = hovering
+
+
+# ============================================================
+# COMBO, DASH, MUTATORS, SHAKE HELPERS
+# ============================================================
+
+def player_gain_combo(player, amount=1):
+    """Grow the kill chain: each kill briefly multiplies score."""
+    player.combo = min(99, player.combo + amount)
+    player.combo_timer = FPS * 3
+    player.combo_mult = min(1.0 + player.combo * 0.1, 5.0)
+
+
+def player_reset_combo(player):
+    """Any damage taken clears the kill chain."""
+    if player.combo > 0:
+        player.combo = 0
+        player.combo_timer = 0
+        player.combo_mult = 1.0
+        add_kill_feed(player, "COMBO BROKEN", ttl=60)
+
+
+def player_tick_combo(player):
+    """Decay the combo timer so the chain times out between kills."""
+    if player.combo > 0:
+        player.combo_timer -= 1
+        if player.combo_timer <= 0:
+            player_reset_combo(player)
+
+
+def try_player_dash(player, dx, dy):
+    """Dash in a direction with brief i-frames and a short cooldown."""
+    if player.dash_cooldown > 0 or player.dash_timer > 0:
+        return
+    if dx == 0 and dy == 0:
+        return
+    player.dash_timer = 12
+    player.dash_cooldown = FPS * 1
+    player.dash_vx = dx * 16
+    player.dash_vy = dy * 16
+    player.invuln = max(player.invuln, FPS // 4)
+    player.dash_flash = 12
+    spawn_burst(player.x + player.size // 2, player.y + player.size // 2,
+                player.color, count=16, speed=4.0, spread=360, size=3, life=20)
+
+
+def enemy_damage(e, amount):
+    """Apply an enemy mutator to incoming damage before it loses HP."""
+    if getattr(e, "mutator", None) == "armored":
+        return int(math.ceil(amount * 0.5))
+    return amount
+
+
+def split_enemy(enemies, e, wave):
+    """Splitting mutators drop two small enemies when they expire."""
+    if getattr(e, "mutator", None) != "splitting":
+        return
+    if not can_spawn_enemy(enemies):
+        return
+    for i in range(2):
+        if not can_spawn_enemy(enemies):
+            break
+        enemies.append(
+            EnemyEntity(
+                e.x + math.cos(i * math.pi) * 30,
+                e.y + math.sin(i * math.pi) * 30,
+                "Chudson Jr.",
+                True,
+                wave
+            )
+        )
+
+
+def boss_kill_effect():
+    """Screen shake and a brief hit-stop when a boss is defeated."""
+    global shake_timer, shake_magnitude, hitstop
+    shake_timer = 22
+    shake_magnitude = 13
+    hitstop = 7
+
+
+def tick_hitstop():
+    """Count down the game's brief freeze frames."""
+    global hitstop
+    if hitstop > 0:
+        hitstop -= 1
+    return hitstop
+
+
+def apply_screen_shake():
+    """Shift the rendered frame for a few frames after a boss goes down."""
+    global shake_timer
+    if shake_timer <= 0:
+        return
+    shake_timer -= 1
+    off_x = random.randint(-shake_magnitude, shake_magnitude)
+    off_y = random.randint(-shake_magnitude, shake_magnitude)
+    frame = screen.copy()
+    screen.blit(BACKGROUND_SURFACE, (0, 0))
+    screen.blit(VIGNETTE_SURFACE, (0, 0))
+    screen.blit(frame, (off_x, off_y))
 
 
 # ============================================================
@@ -1132,12 +1307,27 @@ CHARACTERS = {
         "desc": "MONIKA IS ABSOLUTELY BROKEN",
         "ability": "MONIKA DELETES EVERYTHING",
         "ability_cd": 5,
-        "ability_desc": "Deletes every enemy on screen and turns you invincible."}}
+        "ability_desc": "Deletes every enemy on screen and turns you invincible."
+    },
+    "Levi": {
+        "hp": 75,
+        "speed": 5.4,
+        "t_speed": 24,
+        "rate": 9,
+        "range": 225,
+        "damage": 13,
+        "bullet_size": 8,
+        "color": (105, 220, 130),
+        "desc": "levi john",
+        "ability": "LEVI BLITZ-A-RAMA",
+        "ability_cd": 8,
+        "ability_desc": "kaboom"
+    }
+}
 
 
 # Monika is intentionally hidden behind the character-select puzzle.
 monika_unlocked = False
-soggy_cat_unlocked = True
 kempson_unlocked = True
 
 
@@ -1272,6 +1462,23 @@ class PlayerEntity:
 
         self.kill_feed = []
 
+        # Kill-combo chain: kills raise the multiplier, damage breaks it.
+        self.combo = 0
+        self.combo_timer = 0
+        self.combo_mult = 1.0
+
+        # Dash mobility with i-frames and a cooldown.
+        self.dash_cooldown = 0
+        self.dash_timer = 0
+        self.dash_vx = 0
+        self.dash_vy = 0
+        self.dash_flash = 0
+        self.last_dir_x = 1
+        self.last_dir_y = 0
+
+        # Glass-cannon run modifier (set when a run starts).
+        self.glass_cannon = False
+
     def update_trail(self):
         """Store the player's centre after movement for a smooth fading trail."""
         cx = self.x + self.size * 0.5
@@ -1347,6 +1554,14 @@ class PlayerEntity:
 
         if self.passive_chain_cooldown > 0:
             self.passive_chain_cooldown -= 1
+
+        if self.dash_cooldown > 0:
+            self.dash_cooldown -= 1
+
+        if self.dash_flash > 0:
+            self.dash_flash -= 1
+
+        player_tick_combo(self)
 
         # Character passives that modify movement.
         if self.name == "Lachie" and (abs(self.vel_x) + abs(self.vel_y)) > 0.1:
@@ -1560,6 +1775,7 @@ class MattMiniBoss(EnemyEntity):
         self.heal_per_brick = max(8, int(self.max_hp * 0.12))
         self.is_mini_boss = True
         self.eating_flash = 0
+        self.throw_timer = random.randint(150, 260)
 
 
 class Brick:
@@ -1588,10 +1804,12 @@ def spawn_matt_bricks():
 # ============================================================
 
 def award_kill(player, enemy):
-    """Award reduced score so point progression takes longer."""
+    """Award score scaled by the kill-combo chain."""
+    player_gain_combo(player)
     base = 50 if enemy.is_boss else (15 if enemy.is_mini_boss else (3 if enemy.is_elite else 1))
-    points = base * player.score_multiplier
+    points = int(base * player.score_multiplier * player.combo_mult)
     if enemy.is_boss:
+        boss_kill_effect()
         message = f"BOSS DEFEATED  +{points}"
     elif enemy.is_mini_boss:
         message = f"MATT DOWN  +{points}"
@@ -1600,6 +1818,10 @@ def award_kill(player, enemy):
     else:
         message = f"{enemy.name}  +{points}"
     add_kill_feed(player, message)
+    if STATS is not None:
+        STATS["total_kills"] += 1
+        name_key = player.name
+        STATS["kills_by_character"][name_key] = STATS["kills_by_character"].get(name_key, 0) + 1
     return points
 
 
@@ -1750,7 +1972,7 @@ class Pickup:
 
 
 # ============================================================
-# ENEMY BULLET
+# ENEMY BULLET CREATOR
 # ============================================================
 
 def create_enemy_bullet(
@@ -1800,17 +2022,17 @@ def damage_all_enemies(
     wave
 ):
 
-    kills = 0
+    total_points = 0
 
     for e in enemies[:]:
 
-        e.hp -= damage
+        e.hp -= enemy_damage(e, damage)
 
         if e.hp <= 0:
 
             if e.is_boss:
 
-                score_gain = award_kill(player, e)
+                points = award_kill(player, e)
 
                 for _ in range(5):
 
@@ -1826,7 +2048,7 @@ def damage_all_enemies(
 
             else:
 
-                score_gain = award_kill(player, e)
+                points = award_kill(player, e)
 
                 if random.random() < 0.08:
 
@@ -1844,10 +2066,12 @@ def damage_all_enemies(
                         (255, 120, 80), count=14, speed=3.0,
                         spread=360, size=3, life=22)
 
-            enemies.remove(e)
-            kills += score_gain
+            split_enemy(enemies, e, wave)
 
-    return kills
+            enemies.remove(e)
+            total_points += points
+
+    return total_points
 
 
 # ============================================================
@@ -1941,8 +2165,6 @@ def use_ability(
         player.damage_boost_timer = FPS * 8
         player.speed_boost_timer = FPS * 8
         player.fire_rate_timer = FPS * 8
-
-        player.damage += 3
 
 
     # ========================================================
@@ -2053,16 +2275,21 @@ def use_ability(
                 e.y + e.size // 2
             ) < 300:
 
-                e.hp -= 60
+                e.hp -= enemy_damage(e, 60)
 
                 if e.hp <= 0:
 
                     enemies.remove(e)
 
+                    player_gain_combo(player)
+
                     score_gain += (
                         2 *
-                        player.score_multiplier
+                        player.score_multiplier *
+                        player.combo_mult
                     )
+
+                    split_enemy(enemies, e, wave)
 
 
     # ========================================================
@@ -2353,10 +2580,10 @@ def use_ability(
 
 
     # ========================================================
-    # AARON - BARRAGE
+    # ARRON - BARRAGE
     # ========================================================
 
-    elif player.name == "Aaron":
+    elif player.name == "Arron":
 
         # 3 rings of bullets
         for ring in range(3):
@@ -2490,15 +2717,18 @@ def use_ability(
 
             if e.is_boss:
 
-                e.hp -= 1000
+                e.hp -= enemy_damage(e, 1000)
 
                 if e.hp <= 0:
 
                     enemies.remove(e)
 
+                    player_gain_combo(player)
+
                     score_gain += (
                         250 *
-                        player.score_multiplier
+                        player.score_multiplier *
+                        player.combo_mult
                     )
 
                     for _ in range(8):
@@ -2515,16 +2745,21 @@ def use_ability(
 
             else:
 
-                e.hp -= 999999
+                e.hp -= enemy_damage(e, 999999)
 
                 if e.hp <= 0:
 
                     enemies.remove(e)
 
+                    player_gain_combo(player)
+
                     score_gain += (
                         5 *
-                        player.score_multiplier
+                        player.score_multiplier *
+                        player.combo_mult
                     )
+
+                    split_enemy(enemies, e, wave)
 
         # Also become temporarily invincible.
         player.invuln = FPS * 5
@@ -2633,6 +2868,28 @@ def use_ability(
             )
         player.invuln = FPS * 1
 
+    elif player.name == "Levi":
+        player.speed_boost_timer = FPS * 4
+        for i in range(16):
+            angle = i * math.pi * 2 / 16 + random.uniform(-0.08, 0.08)
+            tears.append(
+                TearEntity(
+                    cx, cy,
+                    math.cos(angle) * 13,
+                    math.sin(angle) * 13,
+                    95, 7,
+                    player.damage * 1
+                )
+            )
+        area_effects.append(
+            AreaEffect(
+                cx, cy,
+                110, FPS * 3,
+                (105, 220, 130),
+                10
+            )
+        )
+
     return score_gain
 
 
@@ -2679,8 +2936,7 @@ def theme_menu():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
             if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and fade_mode == "idle":
                 for i, name in enumerate(names):
                     rect = pygame.Rect(WIDTH // 2 - 175, panel_rect.y + 20 + i * 46, 350, 38)
@@ -2737,8 +2993,7 @@ def credits_menu():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 if fade_mode == "idle":
                     request_menu_exit()
@@ -2759,9 +3014,14 @@ def credits_menu():
 # ============================================================
 
 CHANGELOG_ENTRIES = [
-    ("Balancing"),
-    ("Gave Kempson an ability"),
-    ("Fixed small bugs"),
+    ("Stats, unlocks and settings now save to saves.json next to the game"),
+    ("Levi joins the roster with his bittiest burst ability"),
+    ("Combo meter that multiplies score, broken when you take damage"),
+    ("Dash with i-frames on SPACE or double-tap WASD"),
+    ("Enemy mutators from wave 4: armored, kamikaze, splitting, speed aura"),
+    ("Mr Champion enrages under 30% HP; Matt throws bricks"),
+    ("Glass cannon toggle (G) in character select: x4 damage, 1 HP"),
+    ("Screen shake + hit-stop when a boss goes down"),
 ]
 
 def changelog_menu():
@@ -2829,8 +3089,7 @@ def changelog_menu():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if event.type == pygame.KEYDOWN:
                 if fade_mode == "idle":
@@ -2869,15 +3128,89 @@ def changelog_menu():
 
 
 # ============================================================
+# STATS
+# ============================================================
+
+def format_run_time(seconds):
+    """Format a raw second count as a compact duration string."""
+    seconds = int(seconds)
+    hours, rem = divmod(seconds, 3600)
+    minutes, secs = divmod(rem, 60)
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def stats_menu():
+    """Show all-time stats saved beside the game."""
+    age = 0
+
+    while True:
+        tick_fade()
+        draw_gradient_background()
+
+        text_center("STATS", font_title, WHITE, 45)
+        text_center("Saved in saves.json next to the game", font_small, MUTED, 105)
+
+        top_character = max(STATS["kills_by_character"].items(),
+                            key=lambda kv: kv[1]) if STATS["kills_by_character"] else None
+
+        rows = [
+            ("BEST SCORE", f"{STATS['best_score']:,}"),
+            ("BEST WAVE", str(STATS["best_wave"])),
+            ("GAMES PLAYED", str(STATS["games_played"])),
+            ("TOTAL KILLS", f"{STATS['total_kills']:,}"),
+            ("TIME PLAYED", format_run_time(STATS["run_time_seconds"])),
+            ("TOP CHARACTER",
+             f"{top_character[0]} ({top_character[1]} kills)" if top_character else "-"),
+        ]
+
+        card = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 220, 140, 440, 320))
+        panel(card, PANEL, BORDER, 16, 1)
+
+        y = card.y + 22
+        for label, value in rows:
+            label_s = font_small.render(label, True, MUTED)
+            screen.blit(label_s, (card.x + 28, y))
+            value_s = font_ui.render(value, True, WHITE)
+            screen.blit(value_s, (card.right - value_s.get_width() - 28, y - 3))
+            y += 44
+
+        text_center("ESC TO GO BACK", font_tiny, MUTED, 530)
+        update_fx()
+        draw_fx()
+
+        for event in pygame.event.get():
+            if event.type == pygame.QUIT:
+                quit_game()
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                if fade_mode == "idle":
+                    request_menu_exit()
+
+        if exit_ok:
+            reset_exit_ok()
+            return
+
+        draw_fade_overlay()
+        draw_custom_cursor()
+        pygame.display.flip()
+        clock.tick(FPS)
+        age += 1
+
+
+# ============================================================
 # MAIN MENU
 # ============================================================
 
 def main_menu():
     play_music("menu")
     selected = 0
-    options = ["PLAY", "CREATE CHARACTER", "THEMES", "CHANGELOG", "CREDITS", "MUSIC VOLUME", "QUIT"]
+    options = ["PLAY", "CREATE CHARACTER", "THEMES", "CHANGELOG", "STATS",
+               "CREDITS", "MUSIC VOLUME", "QUIT"]
     age = 0
-    selected_y = 322.0
+    selected_y = 300.0
 
     while True:
         tick_fade()
@@ -2923,48 +3256,47 @@ def main_menu():
 
         # Main menu — sized so the card never runs off the bottom of the
         # 800x600 window, with even margins around its options.
-        menu_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 185, 268, 370, 300))
+        menu_rect = draw_fade_enter(age, pygame.Rect(WIDTH // 2 - 185, 262, 370, 304))
         panel(menu_rect, PANEL, BORDER, 18, 1)
         section_label("MAIN MENU", menu_rect.x + 24, menu_rect.y + 15)
 
         # Smoothly glide the selection highlight between options.
-        target_y = menu_rect.y + 40 + selected * 36
+        target_y = menu_rect.y + 38 + selected * 32
         selected_y = lerp(selected_y, target_y, 0.38)
         if abs(selected_y - target_y) < 0.4:
             selected_y = target_y
-        highlight = pygame.Rect(menu_rect.x + 14, int(selected_y) - 2, menu_rect.w - 28, 34)
+        highlight = pygame.Rect(menu_rect.x + 14, int(selected_y) - 1, menu_rect.w - 28, 30)
         draw_rect_glow(highlight, ACCENT, radius=10, alpha=30, spread=8)
         draw_alpha_rect(highlight, ACCENT, radius=10, alpha=40)
 
         for i, option in enumerate(options):
-            rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 40 + i * 36, menu_rect.w - 48, 30)
+            rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 38 + i * 32, menu_rect.w - 48, 30)
             hovered = rect.collidepoint(pygame.mouse.get_pos())
             active = i == selected or hovered
             label = f"MUSIC VOLUME   {round(music_volume * 100)}%" if option == "MUSIC VOLUME" else option
             button(rect, label, active)
 
-        if selected == 5:
+        if selected == 6:
             bar_rect = pygame.Rect(menu_rect.x + 65, menu_rect.bottom - 14, menu_rect.w - 130, 5)
             bar(bar_rect, music_volume, 1.0, ACCENT, back=GRAY)
 
-        controls = "WASD MOVE   •   ARROWS SHOOT   •   E ABILITY   •   P PAUSE"
+        controls = "WASD MOVE   •   ARROWS SHOOT   •   E ABILITY   •   SPACE DASH   •   P PAUSE"
         text_center(controls, font_tiny, MUTED, 579)
         update_fx()
         draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if fade_mode == "idle" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_UP:
                     selected = (selected - 1) % len(options)
                 elif event.key == pygame.K_DOWN:
                     selected = (selected + 1) % len(options)
-                elif event.key == pygame.K_LEFT and selected == 5:
+                elif event.key == pygame.K_LEFT and selected == 6:
                     set_music_volume(music_volume - 0.05)
-                elif event.key == pygame.K_RIGHT and selected == 5:
+                elif event.key == pygame.K_RIGHT and selected == 6:
                     set_music_volume(music_volume + 0.05)
                 elif event.key == pygame.K_RETURN:
                     if selected == 0:
@@ -2977,18 +3309,19 @@ def main_menu():
                     elif selected == 3:
                         run_transition(changelog_menu)
                     elif selected == 4:
-                        run_transition(credits_menu)
+                        run_transition(stats_menu)
                     elif selected == 5:
+                        run_transition(credits_menu)
+                    elif selected == 6:
                         # Volume is controlled directly with LEFT/RIGHT.
                         pass
                     else:
                         fade_out_blocking()
-                        pygame.quit()
-                        sys.exit()
+                        quit_game()
 
             if fade_mode == "idle" and event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                 for i in range(len(options)):
-                    rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 40 + i * 36, menu_rect.w - 48, 30)
+                    rect = pygame.Rect(menu_rect.x + 24, menu_rect.y + 38 + i * 32, menu_rect.w - 48, 30)
                     if rect.collidepoint(event.pos):
                         selected = i
                         if i == 0:
@@ -3001,15 +3334,16 @@ def main_menu():
                         elif i == 3:
                             run_transition(changelog_menu)
                         elif i == 4:
-                            run_transition(credits_menu)
+                            run_transition(stats_menu)
                         elif i == 5:
+                            run_transition(credits_menu)
+                        elif i == 6:
                             # Clicking the volume option selects it;
                             # LEFT/RIGHT changes the volume.
                             pass
                         else:
                             fade_out_blocking()
-                            pygame.quit()
-                            sys.exit()
+                            quit_game()
 
         draw_developer_credit()
         draw_fade_overlay()
@@ -3027,6 +3361,33 @@ CUSTOM_COLORS = [
     (0, 220, 255), (255, 70, 90), (180, 0, 220), (255, 180, 40),
     (100, 255, 80), (255, 80, 190), (80, 140, 255), (255, 255, 255)
 ]
+
+
+def create_custom_fighter(name, color_index, hp, speed, tear_speed,
+                          fire_rate, attack_range, damage, bullet_size):
+    """Add the current creator stats to CHARACTERS under a unique name."""
+    base_name = name.strip() or "Custom Fighter"
+    custom_name = base_name
+    number = 2
+    while custom_name in CHARACTERS:
+        custom_name = f"{base_name} {number}"
+        number += 1
+
+    CHARACTERS[custom_name] = {
+        "hp": hp,
+        "speed": speed,
+        "t_speed": tear_speed,
+        "rate": fire_rate,
+        "range": attack_range,
+        "damage": damage,
+        "bullet_size": bullet_size,
+        "color": CUSTOM_COLORS[color_index],
+        "desc": "A fighter you built yourself.",
+        "ability": "Custom Burst",
+        "ability_desc": "A balanced burst of shots all around you.",
+        "ability_cd": 8,
+    }
+
 
 def create_character_menu():
     """Create a character without needing to edit the source code."""
@@ -3137,8 +3498,7 @@ def create_character_menu():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
@@ -3189,28 +3549,8 @@ def create_character_menu():
                     name = name.strip() or "Custom Fighter"
 
                 elif event.key == pygame.K_RETURN and selected == len(fields) - 1:
-                    # Ensure unique name in case the creator is opened repeatedly.
-                    base_name = name.strip() or "Custom Fighter"
-                    custom_name = base_name
-                    number = 2
-                    while custom_name in CHARACTERS:
-                        custom_name = f"{base_name} {number}"
-                        number += 1
-
-                    CHARACTERS[custom_name] = {
-                        "hp": hp,
-                        "speed": speed,
-                        "t_speed": tear_speed,
-                        "rate": fire_rate,
-                        "range": attack_range,
-                        "damage": damage,
-                        "bullet_size": bullet_size,
-                        "color": CUSTOM_COLORS[color_index],
-                        "desc": "A fighter you built yourself.",
-                        "ability": "Custom Burst",
-                        "ability_desc": "A balanced burst of shots all around you.",
-                        "ability_cd": 8
-                    }
+                    create_custom_fighter(name, color_index, hp, speed, tear_speed,
+                                          fire_rate, attack_range, damage, bullet_size)
                     spawn_burst(create_rect.centerx, create_rect.centery, GREEN,
                                 count=26, speed=3.4, spread=360, size=3, life=30)
                     request_menu_exit()
@@ -3226,27 +3566,8 @@ def create_character_menu():
                     y_check += 34
 
                 if create_rect.collidepoint(event.pos):
-                    base_name = name.strip() or "Custom Fighter"
-                    custom_name = base_name
-                    number = 2
-                    while custom_name in CHARACTERS:
-                        custom_name = f"{base_name} {number}"
-                        number += 1
-
-                    CHARACTERS[custom_name] = {
-                        "hp": hp,
-                        "speed": speed,
-                        "t_speed": tear_speed,
-                        "rate": fire_rate,
-                        "range": attack_range,
-                        "damage": damage,
-                        "bullet_size": bullet_size,
-                        "color": CUSTOM_COLORS[color_index],
-                        "desc": "A fighter you built yourself.",
-                        "ability": "Custom Burst",
-                        "ability_desc": "A balanced burst of shots all around you.",
-                        "ability_cd": 8
-                    }
+                    create_custom_fighter(name, color_index, hp, speed, tear_speed,
+                                          fire_rate, attack_range, damage, bullet_size)
                     spawn_burst(create_rect.centerx, create_rect.centery, GREEN,
                                 count=26, speed=3.4, spread=360, size=3, life=30)
                     request_menu_exit()
@@ -3333,8 +3654,7 @@ def run_monika_unlock_puzzle():
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
             if event.type == pygame.KEYDOWN and fade_mode == "idle":
                 if event.key == pygame.K_ESCAPE:
                     request_menu_exit()
@@ -3359,7 +3679,7 @@ def run_monika_unlock_puzzle():
         clock.tick(FPS)
 
 def run_character_menu():
-    global monika_unlocked, soggy_cat_unlocked, kempson_unlocked
+    global monika_unlocked, kempson_unlocked, glass_cannon_on
     names = list(CHARACTERS.keys())
     selected_index = 0
 
@@ -3500,17 +3820,22 @@ def run_character_menu():
                     if selected == "Monika" and locked else
                     "↑ ↓ SELECT     ENTER PLAY     ESC MAIN MENU")
         text_center(controls, font_tiny, MUTED, 585)
+
+        gc_tag = "GLASS CANNON: ON - x4 DAMAGE, 1 HP" if glass_cannon_on else "GLASS CANNON: OFF (G TO TOGGLE)"
+        gc_colour = RED if glass_cannon_on else MUTED
+        text_center(gc_tag, font_small, gc_colour, 562)
         update_fx()
         draw_fx()
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if fade_mode == "idle" and event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
                     request_menu_exit()
+                if event.key == pygame.K_g:
+                    glass_cannon_on = not glass_cannon_on
                 if event.key == pygame.K_UP:
                     selected_index = (selected_index - 1) % len(names)
                 elif event.key == pygame.K_DOWN:
@@ -3521,6 +3846,9 @@ def run_character_menu():
                             continue
                         unlock_result = run_monika_unlock_puzzle()
                         monika_unlocked = bool(unlock_result)
+                        if monika_unlocked and STATS is not None:
+                            STATS["monika_unlocked"] = monika_unlocked
+                            save_stats()
                     else:
                         fade_out_blocking()
                         return selected
@@ -3850,8 +4178,7 @@ def shop_menu(player, score):
 
             if event.type == pygame.QUIT:
 
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if event.type == pygame.KEYDOWN:
 
@@ -4001,8 +4328,7 @@ def pause_menu(player, score):
         for event in pygame.event.get():
 
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if event.type == pygame.KEYDOWN:
 
@@ -4150,6 +4476,10 @@ def spawn_enemy(enemies, wave):
         enemy.hp = enemy.max_hp
         enemy.speed *= 1.22
 
+    # Mutators spice up later waves: armored, kamikaze, splitting, speed aura.
+    if wave >= 4 and random.random() < (0.5 if wave >= 8 else 0.28):
+        enemy.mutator = random.choice(["armored", "kamikaze", "splitting", "speed_aura"])
+
     enemies.append(enemy)
 
 
@@ -4180,6 +4510,14 @@ def start_game():
         chosen,
         cfg
     )
+
+    # Glass canon: quadruple damage, but a single point of HP.
+    if glass_cannon_on:
+        player.glass_cannon = True
+        player.max_hp = 1
+        player.hp = 1
+        player.damage = cfg["damage"] * 4
+        add_kill_feed(player, "GLASS CANNON ACTIVE", ttl=200)
 
     # Bullet size is now a character stat. Existing characters keep their
     # original projectile sizes, while custom characters can choose theirs.
@@ -4213,6 +4551,10 @@ def start_game():
 
     boss_spawned_this_wave = False
     matt_spawned_this_wave = False
+
+    if STATS is not None:
+        STATS["games_played"] += 1
+        save_stats()
 
     return (
         chosen,
@@ -4371,8 +4713,7 @@ def choose_wave_upgrade(player, wave):
 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                pygame.quit()
-                sys.exit()
+                quit_game()
             if event.type == pygame.KEYDOWN:
                 if event.key in (pygame.K_LEFT, pygame.K_a, pygame.K_1):
                     selected = 0 if event.key == pygame.K_1 else (selected - 1) % 3
@@ -4421,9 +4762,16 @@ def game_loop():
         matt_spawned_this_wave
     ) = start_game()
 
+    run_started_at = time.time()
+    stats_finalized = False
+
+    tap_times = {}
+
     while True:
 
         tick_fade()
+
+        dash_request = None
 
         # ====================================================
         # EVENTS
@@ -4433,8 +4781,7 @@ def game_loop():
 
             if event.type == pygame.QUIT:
 
-                pygame.quit()
-                sys.exit()
+                quit_game()
 
             if event.type == pygame.KEYDOWN:
 
@@ -4456,6 +4803,35 @@ def game_loop():
                         pickups,
                         wave
                     )
+
+                # ------------------------------------------------
+                # DASH (SPACE or double-tap WASD)
+                # ------------------------------------------------
+
+                if event.key == pygame.K_SPACE and not game_over:
+                    keys_now = pygame.key.get_pressed()
+                    mdx = int(keys_now[pygame.K_d]) - int(keys_now[pygame.K_a])
+                    mdy = int(keys_now[pygame.K_s]) - int(keys_now[pygame.K_w])
+                    if mdx == 0 and mdy == 0:
+                        dash_request = (player.last_dir_x, player.last_dir_y)
+                    else:
+                        dash_len = math.hypot(mdx, mdy)
+                        dash_request = (mdx / dash_len, mdy / dash_len)
+
+                if (
+                    event.key in (pygame.K_w, pygame.K_a, pygame.K_s, pygame.K_d)
+                    and not game_over
+                ):
+                    now = pygame.time.get_ticks()
+                    if now - tap_times.get(event.key, 0) < 220:
+                        dash_dir_map = {
+                            pygame.K_w: (0, -1),
+                            pygame.K_s: (0, 1),
+                            pygame.K_a: (-1, 0),
+                            pygame.K_d: (1, 0)
+                        }
+                        dash_request = dash_dir_map[event.key]
+                    tap_times[event.key] = now
 
                 # ------------------------------------------------
                 # PAUSE
@@ -4486,7 +4862,7 @@ def game_loop():
                             area_effects,
                             pickups,
                             bricks,
-                                                score,
+                            score,
                             wave,
                             wave_timer,
                             wave_duration,
@@ -4496,6 +4872,9 @@ def game_loop():
                             boss_spawned_this_wave,
                             matt_spawned_this_wave
                         ) = start_game()
+
+                        run_started_at = time.time()
+                        stats_finalized = False
                     else:
                         score = pause_result
                         play_music("ingame")
@@ -4519,7 +4898,7 @@ def game_loop():
                             area_effects,
                             pickups,
                             bricks,
-                                                score,
+                            score,
                             wave,
                             wave_timer,
                             wave_duration,
@@ -4530,11 +4909,16 @@ def game_loop():
                             matt_spawned_this_wave
                         ) = start_game()
 
+                        run_started_at = time.time()
+                        stats_finalized = False
+
         # ========================================================
         # GAME UPDATE
         # ========================================================
 
-        if not game_over:
+        tick_hitstop()
+
+        if not game_over and hitstop <= 0:
 
             keys = pygame.key.get_pressed()
 
@@ -4570,18 +4954,38 @@ def game_loop():
                 dx /= length
                 dy /= length
 
-            player.vel_x = (
-                dx *
-                player.speed
-            )
+            if dx != 0 or dy != 0:
+                player.last_dir_x = dx
+                player.last_dir_y = dy
 
-            player.vel_y = (
-                dy *
-                player.speed
-            )
+            if dash_request is not None:
+                try_player_dash(player, dash_request[0], dash_request[1])
 
-            player.x += player.vel_x
-            player.y += player.vel_y
+            if player.dash_timer > 0:
+
+                player.dash_timer -= 1
+                player.x += player.dash_vx
+                player.y += player.dash_vy
+                player.vel_x = player.dash_vx
+                player.vel_y = player.dash_vy
+                if player.dash_flash > 0 and random.random() < 0.4:
+                    spawn_burst(player.x + player.size // 2, player.y + player.size // 2,
+                                player.color, count=2, speed=1.2, spread=360, size=2, life=8)
+
+            else:
+
+                player.vel_x = (
+                    dx *
+                    player.speed
+                )
+
+                player.vel_y = (
+                    dy *
+                    player.speed
+                )
+
+                player.x += player.vel_x
+                player.y += player.vel_y
 
             player.x = max(
                 0,
@@ -4974,16 +5378,20 @@ def game_loop():
             # ENEMY AI
             # ====================================================
 
+            auras = [a for a in enemies if getattr(a, "mutator", None) == "speed_aura"]
+
             for e in enemies[:]:
 
                 if e.is_boss:
-                    e.speed = 1.6 + wave * 0.03
+                    e.speed = (1.6 + wave * 0.03) * (1.45 if e.enraged else 1.0)
                 elif e.is_mini_boss:
                     e.speed = 1.8 + min(wave * 0.025, 0.8)
                 else:
                     base_speed = 2.8 + min(wave * 0.025, 1.6) if e.small else 1.8 + min(wave * 0.035, 1.8)
                     if e.is_elite:
                         base_speed *= 1.22
+                    if getattr(e, "mutator", None) == "kamikaze":
+                        base_speed *= 1.7
                     e.speed = base_speed
 
                 if e.is_mini_boss:
@@ -5017,6 +5425,38 @@ def game_loop():
                     e.y = max(75, min(HEIGHT - e.size, e.y))
                     if e.eating_flash > 0:
                         e.eating_flash -= 1
+
+                    e.throw_timer -= 1
+                    if e.throw_timer <= 0 and bricks:
+                        brick_to_throw = min(
+                            bricks,
+                            key=lambda brick: distance(
+                                e.x + e.size / 2, e.y + e.size / 2,
+                                brick.x + brick.size / 2, brick.y + brick.size / 2
+                            )
+                        )
+                        bx = e.x + e.size // 2
+                        by = e.y + e.size // 2
+                        dx_t = target_x - bx
+                        dy_t = target_y - by
+                        d_len = math.hypot(dx_t, dy_t)
+                        if d_len > 0:
+                            enemy_bullets.append(
+                                EnemyBullet(
+                                    bx,
+                                    by,
+                                    dx_t / d_len * 4.4,
+                                    dy_t / d_len * 4.4,
+                                    9
+                                )
+                            )
+                            enemy_bullets[-1].is_brick = True
+                        bricks.remove(brick_to_throw)
+                        spawn_burst(bx, by, ORANGE, count=12, speed=2.8,
+                                    spread=360, size=3, life=18, gravity=0.06)
+                        e.throw_timer = random.randint(200, 320)
+                    elif e.throw_timer <= 0:
+                        e.throw_timer = random.randint(140, 220)
                     continue
 
                 if e.is_boss:
@@ -5027,6 +5467,11 @@ def game_loop():
                         e.phase = new_phase
                         e.phase_flash = 45
                         add_kill_feed(player, f"MR CHAMPION PHASE {new_phase}!")
+                    if hp_ratio <= 0.30 and not e.enraged:
+                        e.enraged = True
+                        e.phase = 3
+                        e.phase_flash = 45
+                        add_kill_feed(player, "MR CHAMPION ENRAGED!")
                     if e.phase_flash > 0:
                         e.phase_flash -= 1
 
@@ -5122,7 +5567,7 @@ def game_loop():
                                 )
                             )
 
-                        e.shoot_timer = 70 if e.phase == 1 else (52 if e.phase == 2 else 38)
+                        e.shoot_timer = 70 if e.phase == 1 else (52 if e.phase == 2 else (28 if e.enraged else 38))
 
                     e.spawn_timer -= 1
 
@@ -5308,6 +5753,16 @@ def game_loop():
                         e.x + e.size // 2, e.y + e.size // 2
                     ) < 170:
                         move_speed *= 0.72
+
+                    for aura in auras:
+                        if aura is e:
+                            continue
+                        if distance(
+                            e.x + e.size / 2, e.y + e.size / 2,
+                            aura.x + aura.size / 2, aura.y + aura.size / 2
+                        ) < 140:
+                            move_speed *= 1.4
+                            break
 
                     if e.x < target_x:
                         e.x += move_speed
@@ -5615,6 +6070,7 @@ def game_loop():
                             blocked = True
                         if not blocked:
                             player.hp -= incoming
+                            player_reset_combo(player)
                             player.invuln = 20
 
                     if player.hp <= 0:
@@ -5635,7 +6091,7 @@ def game_loop():
                             e.y + e.size // 2
                         ) < area.radius:
 
-                            e.hp -= area.damage
+                            e.hp -= enemy_damage(e, area.damage)
 
 
             # ====================================================
@@ -5664,6 +6120,8 @@ def game_loop():
                     else:
 
                         score += award_kill(player, e)
+
+                    split_enemy(enemies, e, wave)
 
                     enemies.remove(e)
 
@@ -5735,6 +6193,7 @@ def game_loop():
                         if player.name == "Mr Byrne":
                             damage = int(damage * 0.75)
                         player.hp -= damage
+                        player_reset_combo(player)
                         player.invuln = 30
 
                     if bullet in enemy_bullets:
@@ -5786,6 +6245,10 @@ def game_loop():
                         wave // 4
                     )
 
+                    kamikaze = getattr(e, "mutator", None) == "kamikaze"
+                    if kamikaze:
+                        damage = int(damage * 2)
+
                     if player.name == "Mr Byrne":
                         damage = int(damage * 0.75)
                     if player.name == "Darcy" and player.passive_guard_cooldown <= 0:
@@ -5803,7 +6266,23 @@ def game_loop():
                         damage = 0
 
                     player.hp -= damage
+                    player_reset_combo(player)
                     player.invuln = max(player.invuln, 30)
+
+                    if kamikaze and e in enemies:
+                        spawn_burst(e.x + e.size // 2, e.y + e.size // 2,
+                                    FIRE_RED, count=26, speed=4.0,
+                                    spread=360, size=3, life=26)
+                        g_flashes.append({
+                            "x": e.x + e.size // 2,
+                            "y": e.y + e.size // 2,
+                            "radius": e.size,
+                            "life": 7, "max_life": 7,
+                            "colour": FIRE_RED,
+                            "alpha": 150,
+                        })
+                        score += award_kill(player, e)
+                        enemies.remove(e)
 
                     if player.hp <= 0:
 
@@ -5856,7 +6335,7 @@ def game_loop():
 
                     if e.is_boss:
 
-                        e.hp -= t.damage
+                        e.hp -= enemy_damage(e, t.damage)
 
                         hit_enemy = True
 
@@ -5885,9 +6364,11 @@ def game_loop():
                     # CHUDSON
                     # --------------------------------------------
 
+                    applied = enemy_damage(e, t.damage)
+
                     if (
                         e.name == "chudson mcchud"
-                        and e.hp <= t.damage
+                        and e.hp <= applied
                     ):
 
                         for i in range(2):
@@ -5915,7 +6396,7 @@ def game_loop():
                     # DAMAGE NORMAL ENEMY
                     # --------------------------------------------
 
-                    e.hp -= t.damage
+                    e.hp -= applied
 
                     hit_enemy = True
 
@@ -6019,6 +6500,8 @@ def game_loop():
                     elif e.is_mini_boss or e.is_elite:
 
                         score += award_kill(player, e)
+
+                    split_enemy(enemies, e, wave)
 
                     if e in enemies:
                         enemies.remove(e)
@@ -6197,6 +6680,29 @@ def game_loop():
 
             for bullet in enemy_bullets:
 
+                if getattr(bullet, "is_brick", False):
+                    pygame.draw.circle(
+                        screen,
+                        (150, 85, 45),
+                        (int(bullet.x), int(bullet.y)),
+                        bullet.radius
+                    )
+                    pygame.draw.circle(
+                        screen,
+                        (205, 130, 70),
+                        (int(bullet.x), int(bullet.y)),
+                        bullet.radius,
+                        2
+                    )
+                    pygame.draw.line(
+                        screen,
+                        (90, 45, 20),
+                        (bullet.x - bullet.radius, bullet.y),
+                        (bullet.x + bullet.radius, bullet.y),
+                        2
+                    )
+                    continue
+
                 glow_circle((bullet.x, bullet.y), bullet.radius, YELLOW, 28)
                 pygame.draw.circle(
                     screen,
@@ -6298,6 +6804,12 @@ def game_loop():
                     if e.phase_flash > 0:
                         flash = font_ui.render(f"PHASE {e.phase}!", True, GOLD)
                         screen.blit(flash, (WIDTH // 2 - flash.get_width() // 2, 82))
+
+                    if e.enraged:
+                        glow_circle((e.x + e.size // 2, e.y + e.size // 2),
+                                    e.size + 10, RED, 40)
+                        enrage_surf = font_tiny.render("ENRAGED", True, RED)
+                        screen.blit(enrage_surf, (e.x + e.size // 2 - enrage_surf.get_width() // 2, e.y - 16))
 
                     continue
 
@@ -6416,6 +6928,21 @@ def game_loop():
                     pygame.draw.rect(screen, GOLD, (e.x - 3, e.y - 3, e.size + 6, e.size + 6), 3, border_radius=9)
                     elite_tag = font_tiny.render("ELITE", True, GOLD)
                     screen.blit(elite_tag, (e.x + e.size // 2 - elite_tag.get_width() // 2, e.y - 22))
+
+                mutator_tags = {
+                    "armored": ("ARMORED", (170, 180, 200)),
+                    "kamikaze": ("KAMIKAZE", RED),
+                    "splitting": ("SPLITS", LIME),
+                    "speed_aura": ("SPEED AURA", (255, 240, 90)),
+                }
+                mutator = getattr(e, "mutator", None)
+                if mutator in mutator_tags:
+                    tag_text, tag_colour = mutator_tags[mutator]
+                    mtag = font_tiny.render(tag_text, True, tag_colour)
+                    screen.blit(mtag, (e.x + e.size // 2 - mtag.get_width() // 2, e.y - 36))
+                    pygame.draw.rect(screen, tag_colour,
+                                     (e.x - 3, e.y - 3, e.size + 6, e.size + 6),
+                                     1, border_radius=8)
 
 
                 # =================================================
@@ -6643,6 +7170,23 @@ def game_loop():
 
 
             # ====================================================
+            # COMBO METER
+            # ====================================================
+
+            combo_card = pygame.Rect(WIDTH - 180, 72, 170, 44)
+            combo_colour = GOLD if player.combo > 0 else MUTED
+            panel(combo_card, PANEL, BORDER, 10, 1)
+            combo_surf = font_small.render(f"COMBO x{player.combo_mult:.1f}", True, combo_colour)
+            screen.blit(combo_surf, (combo_card.x + 12, combo_card.y + 5))
+            combo_count = font_tiny.render(f"{player.combo} KILL CHAIN", True, LIGHT_GRAY)
+            screen.blit(combo_count, (combo_card.x + 12, combo_card.y + 22))
+            if player.combo > 0:
+                combo_ratio = player.combo_timer / max(1, FPS * 3)
+                bar((combo_card.x + 12, combo_card.y + 38, combo_card.w - 24, 3),
+                    combo_ratio, 1.0, combo_colour, back=GRAY)
+
+
+            # ====================================================
             # WAVE
             # ====================================================
 
@@ -6721,10 +7265,30 @@ def game_loop():
 
 
             # ====================================================
+            # DASH HUD
+            # ====================================================
+
+            if player.dash_timer > 0:
+                dash_text = "DASH!"
+            elif player.dash_cooldown > 0:
+                dash_text = f"DASH {player.dash_cooldown / FPS:.1f}s"
+            else:
+                dash_text = "DASH READY"
+            dash_colour = GREEN if player.dash_cooldown <= 0 else RED
+            dash_surf = font_small.render(dash_text, True, dash_colour)
+            screen.blit(dash_surf, (10, 72))
+
+
+            # ====================================================
             # EFFECT HUD
             # ====================================================
 
-            effect_y = 75
+            effect_y = 92
+
+            if player.glass_cannon:
+                gc_surf = font_small.render("GLASS CANNON x4", True, RED)
+                screen.blit(gc_surf, (10, effect_y))
+                effect_y += 18
 
             if player.speed_boost_timer > 0:
 
@@ -6842,7 +7406,7 @@ def game_loop():
 
             controls = font_small.render(
                 "WASD: Move | Arrows: Shoot | "
-                "E: Ability | P: Pause",
+                "E: Ability | Space: Dash | P: Pause",
                 True,
                 LIGHT_GRAY
             )
@@ -6885,6 +7449,15 @@ def game_loop():
 
             # Game-over is a menu state, so restore the menu soundtrack.
             play_music("menu")
+
+            # Record run results exactly once and persist them.
+            if not stats_finalized:
+                stats_finalized = True
+                if STATS is not None:
+                    STATS["best_score"] = max(STATS["best_score"], score)
+                    STATS["best_wave"] = max(STATS["best_wave"], wave)
+                    STATS["run_time_seconds"] += int(time.time() - run_started_at)
+                save_stats()
 
             overlay = pygame.Surface(
                 (WIDTH, HEIGHT),
@@ -6964,6 +7537,7 @@ def game_loop():
 
 
         draw_fx()
+        apply_screen_shake()
         draw_fade_overlay()
         draw_custom_cursor()
         pygame.display.flip()
@@ -6974,6 +7548,15 @@ def game_loop():
 # ============================================================
 # PROGRAM START
 # ============================================================
+
+# Re-apply saved preferences before the menus start.  The fonts and
+# background are built earlier using the defaults; the extra apply_theme
+# call here swaps in the player's chosen theme and rebuilds the cache.
+load_stats()
+music_volume = STATS["music_volume"]
+if STATS["theme"] in THEMES:
+    apply_theme(STATS["theme"])
+monika_unlocked = STATS["monika_unlocked"]
 
 main_menu()
 
