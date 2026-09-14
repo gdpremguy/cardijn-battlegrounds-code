@@ -23,7 +23,7 @@ DEVELOPER_IMAGE_FILES = ("developer.jpg", "developer.jpeg", "developer.png")
 # ------------------------------------------------------------
 # VERSION    Short version string shown across the UI.
 # ------------------------------------------------------------
-GAME_VERSION = "V1.8"
+GAME_VERSION = "V1.8.1"
 
 current_music = None
 music_volume = 0.45
@@ -829,7 +829,7 @@ CHARACTERS = {
         "hp": 200,
         "speed": 2.8,
         "t_speed": 30,
-        "rate": 30,
+        "rate": 15,
         "range": 140,
         "damage": 10,
         "bullet_size": 10,
@@ -1033,7 +1033,7 @@ CHARACTERS = {
         "damage": 8,
         "bullet_size": 8,
         "color": (80, 255, 140),
-        "desc": "Lachie goes turbo",
+        "desc": "",
         "ability": "Lachie Turbo",
         "ability_cd": 10,
         "ability_desc": "Go turbo: fast movement, fast firing and a quick ring."
@@ -1048,7 +1048,7 @@ CHARACTERS = {
         "damage": 9,
         "bullet_size": 9,
         "color": (255, 220, 60),
-        "desc": "Jakub calls in the chaos",
+        "desc": "hi",
         "ability": "Jakub Meteor",
         "ability_cd": 11,
         "ability_desc": "Calls a huge meteor that smashes every enemy."
@@ -1063,7 +1063,7 @@ CHARACTERS = {
         "damage": 7,
         "bullet_size": 7,
         "color": (255, 100, 210),
-        "desc": "Ben disappears and strikes back",
+        "desc": "chud",
         "ability": "Ben Phantom",
         "ability_cd": 9,
         "ability_desc": "Vanish, become invincible, then strike from everywhere."
@@ -1078,7 +1078,7 @@ CHARACTERS = {
         "damage": 8,
         "bullet_size": 8,
         "color": (255, 110, 190),
-        "desc": "Brianna brings the pressure",
+        "desc": "triple brie cheese",
         "ability": "Brianna Barrage",
         "ability_cd": 9,
         "ability_desc": "Fires a barrage around you while gaining speed."
@@ -1093,25 +1093,10 @@ CHARACTERS = {
         "damage": 8,
         "bullet_size": 8,
         "color": (255, 150, 100),
-        "desc": "kody my goat",
+        "desc": "kody NOT cody",
         "ability": "Kody Cyclone",
         "ability_cd": 9,
         "ability_desc": "Whips up a cyclone of shots and briefly shields you."
-    },
-
-    "Monika": {
-        "hp": 1000,
-        "speed": 7.0,
-        "t_speed": 25,
-        "rate": 4,
-        "range": 250,
-        "damage": 25,
-        "bullet_size": 25,
-        "color": (255, 50, 150),
-        "desc": "MONIKA IS ABSOLUTELY BROKEN",
-        "ability": "MONIKA DELETES EVERYTHING",
-        "ability_cd": 5,
-        "ability_desc": "Deletes every enemy on screen and turns you invincible."
     },
 
     "Soggy Cat": {
@@ -1128,15 +1113,26 @@ CHARACTERS = {
         "ability_cd": 8,
         "ability_desc": "Sprays a soggy barrage of shots everywhere."
     },
-
-    # Hidden characters.
     "Kempson": {
         "hp": 180, "speed": 3.9, "t_speed": 14, "rate": 12,
         "range": 90, "damage": 10, "bullet_size": 10,
         "color": (255, 205, 80), "desc": "the secret shopkeeper has entered the arena",
         "ability": "Kempson Deal", "ability_cd": 10,
         "ability_desc": "The shopkeeper deals heavy damage to everyone nearby."
-    },}
+    },
+    "Monika": {
+        "hp": 1000,
+        "speed": 7.0,
+        "t_speed": 25,
+        "rate": 4,
+        "range": 250,
+        "damage": 25,
+        "bullet_size": 25,
+        "color": (255, 50, 150),
+        "desc": "MONIKA IS ABSOLUTELY BROKEN",
+        "ability": "MONIKA DELETES EVERYTHING",
+        "ability_cd": 5,
+        "ability_desc": "Deletes every enemy on screen and turns you invincible."}}
 
 
 # Monika is intentionally hidden behind the character-select puzzle.
@@ -2578,6 +2574,35 @@ def use_ability(
                 )
             )
 
+    # ========================================================
+    # KEMPSON - KEMPSON DEAL
+    # ========================================================
+
+    elif player.name == "Kempson":
+
+        player.invuln = FPS * 2
+
+        for _ in range(3):
+
+            area_effects.append(
+                AreaEffect(
+                    cx,
+                    cy,
+                    240,
+                    22,
+                    GOLD,
+                    0
+                )
+            )
+
+        score_gain += damage_all_enemies(
+            enemies,
+            18,
+            player,
+            pickups,
+            wave
+        )
+
     # Soggy Cat sprays a watery barrage in every direction.
     elif player.name == "Soggy Cat":
         for i in range(18):
@@ -2734,9 +2759,9 @@ def credits_menu():
 # ============================================================
 
 CHANGELOG_ENTRIES = [
-    ("Fixed music"),
-    ("Added particles"),
-    ("Updated UI again"),
+    ("Balancing"),
+    ("Gave Kempson an ability"),
+    ("Fixed small bugs"),
 ]
 
 def changelog_menu():
@@ -2863,11 +2888,11 @@ def main_menu():
         glow_circle((WIDTH // 2, 72), 44, ACCENT, title_pulse)
         pygame.draw.circle(screen, PANEL_2, (WIDTH // 2, 72), 36)
         pygame.draw.circle(screen, ACCENT, (WIDTH // 2, 72), 36, 2)
-        text_center("CB", font_big, WHITE, 50)
-        text_center(GAME_VERSION, font_tiny, MUTED, 112)
+        text_center("CB", font_big, WHITE, 45)
+        text_center(GAME_VERSION, font_enemy, MUTED, 125)
 
         text_center("CARDIJN", font_title, WHITE, 132)
-        text_center("BATTLEGROUNDS", font_title, ACCENT, 206)
+        text_center("BATTLEGROUNDS", font_title, ACCENT, 186)
 
         # Music credits
         music_x = WIDTH - 100
