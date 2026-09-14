@@ -2700,7 +2700,7 @@ def credits_menu():
         panel(credit_rect, PANEL, BORDER, 16, 1)
 
         text_center("CARDIJN BATTLEGROUNDS", font_big, ACCENT, 190)
-        text_center("Created by @snakepoledancing", font_ui, WHITE, 260)
+        text_center("Created by @snakepoledancing on discord", font_ui, WHITE, 260)
         text_center("Fur:Trash for the amazing music.", font_small, LIGHT_GRAY, 325)
         text_center("The fizcord discord server for promoting and ideas.", font_small, LIGHT_GRAY, 349)
         text_center("@troll_the_world on discord for making the wiki", font_small, LIGHT_GRAY, 373)
